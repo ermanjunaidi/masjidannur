@@ -1,0 +1,169 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# PRODUCTION COMPOSE — dipakai oleh `make up` / apps/run.sh menu 2
+#
+# Arsitektur Unified Multi-App (Juli 2026, refactor):
+#   • FE dan BE berjalan sebagai Docker container di apps/<APP>/
+#   • SATU SHARED Cloudflare Tunnel (apps/run.sh Menu 7, one-time setup) connect
+#     ke Traefik (Docker, host, port 80) via http://localhost:80. Karena
+#     Cloudflare sudah terminate TLS, Traefik HANYA butuh entrypoint HTTP —
+#     label `tls=true` dan middleware https-redirect TIDAK dipakai (akan
+#     redundant + bikin 502 Bad Gateway karena self-signed cert Traefik).
+#   • Traefik otomatis discover container via Docker socket — Traefik labels
+#     di bawah jadi aturan routing. Hostname pattern `${APP}.${BASE_DOMAIN}`
+#     dan `api.${APP}.${BASE_DOMAIN}` akan di-resolve otomatis lewat wildcard
+#     DNS yang di-setup oleh Menu 7 (satu entry wildcard CNAME di Cloudflare).
+#   • Postgres run inside Docker container (service `db` in docker-compose.prod.yml).
+#     The data is saved persistently inside the named volume `pgdata`.
+#     Local database still runs on host OS.
+#   • FE static files di-build di host (`npm run build` → frontend/dist/)
+#     dan di-bind-mount ke Nginx container. Tanpa multi-stage Dockerfile
+#     demi simplicity — host butuh Node.js + npm (lihat apps/run.sh menu 2).
+#
+# TEMP (Aug 2026): FE production dijalankan SAMA seperti local dev — Vite dev
+# server (npm run dev) di dalam node:22-alpine container, port = VITE_PORT
+# (sama dengan local dev), plus port mapping localhost:VITE_PORT. Lihat
+# komentar service `frontend` di bawah untuk detail arsitektur baru ini.
+# nginx.conf tidak lagi dipakai oleh service frontend (masih ada di repo
+# untuk backward-compat / revert ke static mode).
+#
+# Placeholder `masjidannur`, `masjidannur.my.id`, `masjidannur.my.id`,
+# dan `api.masjidannur.my.id` di-substitute oleh create_new_project di
+# lib/runsh-docker.sh via sed setelah templating.
+# Pattern __NAME__ dipilih (bukan ${NAME}) untuk hindari clash dengan
+# docker-compose native interpolation ${VAR}.
+#
+# DOMAIN_MODE support (Aug 2026):
+#   ROOT:      FE=DOMAIN, BE=api.DOMAIN
+#   SUBDOMAIN: FE=APP.DOMAIN, BE=api.APP.DOMAIN
+# Kedua mode di-resolve saat create_new_project → sed substitute.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  frontend:
+    # TEMP (Aug 2026, per user request): FE production dijalankan SAMA seperti
+    # local dev mode — Vite dev server (`npm run dev`), BUKAN static build + nginx.
+    #   • image node:22-alpine (bukan nginx:alpine) — vite dev server di dalam
+    #     container. esbuild binary beda per platform (host glibc vs alpine/musl)
+    #     → node_modules HOST tidak bisa dipakai; container install sendiri ke
+    #     named volume `fe_node_modules` (TIDAK menimpa node_modules host).
+    #   • volumes: ./frontend:/app → source + frontend/.env dibaca langsung
+    #     oleh vite (VITE_PORT dari frontend/.env = port local dev).
+    #   • command: npm install + `npm run dev -- --host 0.0.0.0` → bind semua
+    #     interface supaya reachable dari Traefik + host port mapping.
+    #   • ports "${VITE_PORT:-5173}:${VITE_PORT:-5173}" → localhost:VITE_PORT
+    #     juga bisa diakses (sama seperti local dev).
+    #   • environment VITE_PROXY_TARGET=http://backend:${APP_PORT:-8080} →
+    #     vite proxy /api ke backend service di Docker network (bukan
+    #     localhost — di dalam container localhost = container sendiri).
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - fe_node_modules:/app/node_modules
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0"
+    environment:
+      - VITE_PROXY_TARGET=http://backend:${APP_PORT:-8080}
+      - VITE_BASE_DOMAIN=${BASE_DOMAIN:-}
+    ports:
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
+    restart: unless-stopped
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      # FE hostname: resolved by create_new_project based on DOMAIN_MODE
+      #   ROOT:      Host(`DOMAIN`)
+      #   SUBDOMAIN: Host(`APP.DOMAIN`)
+      - "traefik.http.routers.masjidannur-fe.rule=Host(`masjidannur.my.id`)"
+      - "traefik.http.routers.masjidannur-fe.entrypoints=web"
+      # FE container listen port = VITE_PORT (vite dev server, dibaca dari
+      # frontend/.env). Root .env sekarang punya VITE_PORT (generate_env_files
+      # menulis VITE_PORT=${FE_PORT}) → placeholder resolve per-app,
+      # mis. VITE_PORT=5174 → Traefik routes ke 5174 di dalam container.
+      - "traefik.http.services.masjidannur-fe.loadbalancer.server.port=${VITE_PORT:-5173}"
+  backend:
+    # Backend tetap di-build INSIDE container via `command:` supaya host TIDAK
+    # butuh Go toolchain (cukup Docker + Node.js).
+    #
+    # Image HARUS match master/backend/go.mod (golang 1.26). Sebelumnya
+    # golang:1.22-alpine punya Go 1.22.12 gagal dengan "go.mod requires go >= 1.26.3".
+    image: golang:1.26-alpine
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    command: sh -c "go mod download && GOTOOLCHAIN=auto go build -o /app/server ./cmd/server && /app/server"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - backend/.env.production
+    environment:
+      - GOTOOLCHAIN=auto
+      # APP_ENV=production dini eksplisit sebagai safety net — env_file
+      # (backend/.env.production) sudah menyetel ini, tapi kalau file
+      # tersebut hilang/corrupt, fallback ini memastikan loadEnvFiles()
+      # di env.go tetap mendeteksi production mode dan skip dev .env.
+      - APP_ENV=production
+    restart: unless-stopped
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      # API hostname: resolved by create_new_project based on DOMAIN_MODE
+      #   ROOT:      Host(`api.DOMAIN`)
+      #   SUBDOMAIN: Host(`api.APP.DOMAIN`)
+      - "traefik.http.routers.masjidannur-be.rule=Host(`api.masjidannur.my.id`)"
+      - "traefik.http.routers.masjidannur-be.entrypoints=web"
+      # BE container di-bind ke ${APP_PORT} dari .env via env_file backend/.env.production
+      # (lihat env.go AppPort + main.go's `:${env.AppPort}` listen addr).
+      # Root .env selalu punya APP_PORT (generate_env_files tulis) — placeholder
+      # ini resolves per-app, mis. APP_PORT=8081 → Traefik routes ke 8081 inside
+      # container → Go binary yang listen di 8081.
+      # Default 8080 hanya fallback kalau APP_PORT unset (legacy / safety net).
+      - "traefik.http.services.masjidannur-be.loadbalancer.server.port=${APP_PORT:-8080}"
+
+  db:
+    # PostgreSQL database service for production running inside Docker Compose.
+    # Credentials diambil dari root .env (PROD_DB_*) — SAMA dengan yang dipakai
+    # backend (backend/.env.production) supaya user/password/database konsisten.
+    # JANGAN pakai ${DB_USER} — itu adalah dev credentials di root .env
+    # (DB_* dev_user/dev_pass), bukan prod credentials.
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PROD_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${PROD_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${PROD_DB_NAME:-master_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NETWORKS
+# ──────────────────────────────────────────────────────────────────────────────
+# Dua network agar container bisa:
+#   • default          — komunikasi antar container dalam satu compose app
+#                        (nginx → backend via service name "backend")
+#   • traefik-public   — Traefik discover container via Docker labels
+#                        (user-defined external network, BUKAN default bridge)
+# ──────────────────────────────────────────────────────────────────────────────
+volumes:
+  # Named volume untuk node_modules container (Alpine/musl build). Container
+  # menjalankan `npm install` sendiri di volume ini — node_modules host milik
+  # user TIDAK disentuh (cek runsh check_node_modules_owner).
+  fe_node_modules:
+  # Named volume untuk data Postgres production (service `db`).
+  pgdata:
+
+networks:
+  default:
+  traefik-public:
+    external: true

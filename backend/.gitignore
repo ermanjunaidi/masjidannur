@@ -1,0 +1,38 @@
+# ─── Environment ───────────────────────────────────────────────────────────────
+# Pattern `.env` di sini spesifik untuk backend-only secrets; tapi `.env.*` sudah
+# di-cover oleh root `apps/master/.gitignore` (yang berlaku hierarkis ke semua
+# sub-path). Jangan duplikasi di sini — minimalism prinsip dari user.
+.env
+
+# ─── Build ─────────────────────────────────────────────────────────────────────
+tmp/
+main
+*.exe
+server
+
+# ─── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+
+# ─── Uploads (gambar sparepart, dll.) ─────────────────────────────────────────
+# Data pengguna — jangan di-commit ke git. Gunakan volume untuk persist.
+uploads/
+
+# ─── Defensive guards (added when master/ promoted from ignored → tracked) ─────
+# Catches artifacts from any non-Go backend language that may live in this folder.
+node_modules/
+venv/
+env/
+__pycache__/
+*.pyc
+build/
+dist/

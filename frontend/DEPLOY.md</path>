@@ -1,0 +1,89 @@
+Pasang di bagian akhir file DEPLOY.md (existing). Section tambahan untuk `make netlify-build` auto-deploy pipeline.
+
+---
+
+## 🚀 Auto-deploy one-shot (`make netlify-build`)
+
+Paling simple workflow: satu perintah untuk build FE → push ke GitHub → Netlify
+auto-deploy. Tidak perlu login ke Netlify UI, tidak perlu drag-and-drop.
+
+```bash
+cd apps/master
+make netlify-build
+```
+
+### Apa yang terjadi di balik layar
+
+`netlify-deploy.sh` script menjalankan 3 langkah terminal:
+
+1. **Build FE** — `npm run build` di `frontend/`. Bundle output `frontend/dist/`.
+2. **Git commit + push** — `git add -A` lalu commit dengan timestamp, lalu push
+   ke remote `origin` di branch saat ini (`main`). `.gitignore` otomatis skip
+   `node_modules/`, `dist/`, `.env`, dll — jadi **tidak ada secret yang
+   ter-commit**.
+3. **Netlify auto-deploy** — Netlify site yang sudah di-connect ke repo GitHub
+   akan ter-trigger deploy baru setiap push. Cek progress di
+   https://app.netlify.com/ → Site → Deploys.
+
+### One-time setup yang dibutuhkan
+
+Sebelum `make netlify-build` jalan sukses, kamu perlu:
+
+- ✅ Repo GitHub sudah ada dan `git remote -v` menunjukkan URL GitHub (lihat
+  `apps/.gitignore` policy: `master/` di-track di parent repo `apps/`)
+- ✅ Git authentication: SSH key di `~/.ssh/id_*.pub` di-add ke GitHub, atau
+  HTTPS dengan Personal Access Token
+- ✅ Netlify site sudah connect ke repo GitHub: https://app.netlify.com/ →
+  Add new site → Import from Git → pilih repo
+- ✅ Set env var di Netlify UI: `VITE_API_URL = https://api.yourdomain.com`
+
+Kalau salah satu belum ada, script akan **fail-loud** dengan instruksi
+spesifik untuk fix.
+
+### Variasi & override
+
+```bash
+# Build only (no git push, no Netlify deploy) → output frontend/dist/ siap drag-drop manual
+make netlify-build-only
+# atau SKIP_PUSH=1 make netlify-build
+
+# Full pipeline + juga panggil Netlify CLI explicit (extra deploy layer)
+FORCE_NETLIFY_CLI=1 make netlify-build
+# Perlu: cd frontend && npx netlify login && npx netlify link (one-time setup)
+
+# Skip Netlify CLI hanya — git push + git-hook saja (default & recommended)
+SKIP_NETLIFY_CLI=1 make netlify-build
+```
+
+### Walk-through sehari-hari
+
+```bash
+# 1. Edit kode FE
+vim apps/master/frontend/src/components/...
+
+# 2. Cek apa yang berubah
+git status
+git diff
+
+# 3. Auto-deploy (build + push + Netlify trigger)
+make netlify-build
+
+# 4. Lihat progress deploy
+# GitHub: https://github.com/USER/REPO/commits/main
+# Netlify: https://app.netlify.com/ → Deploys (live update)
+```
+
+### Troubleshooting pipeline
+
+| Gejala di output                                    | Penyebab                                         | Fix                                                                                                          |
+| --------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `❌ Bukan di dalam git repository`                 | `apps/.git` belum ada                            | `cd apps && git init && git add . && git commit && git remote add origin <url>`                              |
+| `❌ Tidak ada git remote 'origin'`                  | Remote belum di-add                              | `cd apps && git remote add origin git@github.com:USER/REPO.git`                                               |
+| `❌ FE build gagal`                                | TypeScript error atau missing dep                | Cek output `npm run build` di atas; fix kodenya                                                              |
+| `❌ git push gagal`                                | Auth issue                                       | Setup SSH key `ssh-keygen` + add ke GitHub Settings → Keys; atau set `GH_TOKEN` untuk HTTPS                   |
+| `ℹ️ Netlify CLI belum di-link`                     | Belum pernah `netlify link` di frontend/         | Optional: `cd frontend && npx netlify login && npx netlify link`. Default path tetap pakai git-hook → deploy |
+| `ℹ️ Tidak ada perubahan staged`                    | Semua file sudah committed                       | Aman — push di-skip. Edit file dulu kalau mau deploy baru                                                   |
+
+---
+
+(updated section inserted before 🗂️ File summary)

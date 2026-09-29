@@ -1,0 +1,30 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Old Vite/build snapshots rotated saat `make netlify-build` re-deploy (lihat
+# apps/master/frontend/DEPLOY.md). Root apps/master/.gitignore juga punya
+# `dist.old*` — pattern di sini sebagai defense-in-depth kalau FE dipindah ke
+# repo terpisah sendiri. Catatan: `dist.old-*/` tidak perlu — `dist.old*`
+# sudah match prefix untuk directory apapun yang dimulai dengan `dist.old`.
+node_modules
+dist
+dist-ssr
+dist.old*
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
