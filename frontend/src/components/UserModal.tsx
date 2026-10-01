@@ -182,10 +182,13 @@ export function UserModal({
   open,
   mode,
   initialUser,
-  availableRoles,
+  availableRoles: allRoles,
   onClose,
   onSaved,
 }: UserModalProps) {
+  // superadmin is platform-level: never assignable from the tenant user
+  // management UI (backend also strips it as a second line of defense).
+  const availableRoles = allRoles.filter((r) => r.name !== "superadmin")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")

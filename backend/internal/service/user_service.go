@@ -37,6 +37,35 @@ func (s *UserService) GetUser(id uint) (*models.User, error) {
 	return s.userRepo.FindByID(id)
 }
 
+// PlatformRoleName is the role reserved for platform-level staff. It
+// can never be granted through the tenant admin user-management
+// endpoints — only the seed/bootstrap flow may assign it.
+const PlatformRoleName = "superadmin"
+
+// filterPlatformRoles drops platform-level role IDs (superadmin) from
+// the requested set so a tenant admin cannot escalate anyone (or
+// themselves) to platform staff via POST/PUT /api/users.
+func (s *UserService) filterPlatformRoles(roleIDs []uint) ([]uint, error) {
+	if len(roleIDs) == 0 {
+		return roleIDs, nil
+	}
+	clean := make([]uint, 0, len(roleIDs))
+	for _, id := range roleIDs {
+		role, err := s.roleRepo.FindByID(id)
+		if err != nil {
+			return nil, err
+		}
+		if role == nil {
+			continue
+		}
+		if role.Name == PlatformRoleName {
+			continue // silently strip — the role picker hides it anyway
+		}
+		clean = append(clean, id)
+	}
+	return clean, nil
+}
+
 // CreateUserInput is the payload accepted by POST /api/users. The new
 // account always joins the CALLING admin's organization — never a fresh
 // tenant — so the admin dashboard keeps showing one masjid's workspace.
@@ -49,6 +78,7 @@ type CreateUserInput struct {
 
 // CreateUser adds a user INSIDE the given organization (the actor's).
 // Email must be globally unique; password is required and stored hashed.
+// Platform roles (superadmin) are stripped from the request.
 func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (*models.User, error) {
 	if input.Name == "" || input.Email == "" {
 		return nil, errors.New("nama dan email wajib diisi")
@@ -63,6 +93,10 @@ func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (
 	if existing != nil {
 		return nil, ErrEmailTaken
 	}
+	roleIDs, err := s.filterPlatformRoles(input.RoleIDs)
+	if err != nil {
+		return nil, err
+	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, errors.New("failed to hash password")
@@ -75,7 +109,7 @@ func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (
 		OrganizationID: orgID,
 		BranchID:       branchID,
 	}
-	if err := s.userRepo.CreateWithRoles(user, input.RoleIDs); err != nil {
+	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
 		return nil, err
 	}
 	full, err := s.userRepo.FindByID(user.ID)
@@ -137,7 +171,13 @@ func (s *UserService) UpdateUser(id uint, input *UpdateUserInput) (*models.User,
 		user.Password = string(hashed)
 	}
 
-	if err := s.userRepo.UpdateWithRoles(user, input.RoleIDs); err != nil {
+	// Strip platform-level roles from admin-supplied role sets so the
+	// tenant user-management endpoints can never grant superadmin.
+	roleIDs, err := s.filterPlatformRoles(input.RoleIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.userRepo.UpdateWithRoles(user, roleIDs); err != nil {
 		return nil, err
 	}
 	return user, nil

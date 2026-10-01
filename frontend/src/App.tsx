@@ -25,8 +25,24 @@ export default function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
-          <Route path="/display" element={<PublicDisplayPage />} />
-          <Route path="/display/:slug" element={<PublicDisplayPage />} />
+          {/* Layar TV hanya untuk yang sudah login (butuh settings
+              masjid milik akun) */}
+          <Route
+            path="/display"
+            element={
+              <ProtectedRoute>
+                <PublicDisplayPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/display/:slug"
+            element={
+              <ProtectedRoute>
+                <PublicDisplayPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />

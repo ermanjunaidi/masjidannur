@@ -181,13 +181,17 @@ export default function LandingPage() {
                 {l.label}
               </a>
             ))}
-            <Link
-              to="/display"
-              className="text-sm font-medium text-emerald-600 hover:text-emerald-500 transition-colors flex items-center gap-1.5"
-            >
-              <Tv className="h-4 w-4" />
-              Layar TV
-            </Link>
+            {/* Layar TV hanya tampil saat SUDAH login (akses display
+                terikat akun admin masjid, sesuai aturan multi-tenant). */}
+            {isAuthenticated && (
+              <Link
+                to="/display"
+                className="text-sm font-medium text-emerald-600 hover:text-emerald-500 transition-colors flex items-center gap-1.5"
+              >
+                <Tv className="h-4 w-4" />
+                Layar TV
+              </Link>
+            )}
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -230,15 +234,17 @@ export default function LandingPage() {
                 {l.label}
               </a>
             ))}
-            {/* Layar TV — public display, selalu terlihat termasuk sebelum login */}
-            <Link
-              to="/display"
-              className="flex items-center gap-2 py-2 text-sm font-medium text-emerald-600 hover:text-emerald-500"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Tv className="h-4 w-4" />
-              Layar TV
-            </Link>
+            {/* Layar TV hanya tampil saat SUDAH login (mobile). */}
+            {isAuthenticated && (
+              <Link
+                to="/display"
+                className="flex items-center gap-2 py-2 text-sm font-medium text-emerald-600 hover:text-emerald-500"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Tv className="h-4 w-4" />
+                Layar TV
+              </Link>
+            )}
             <div className="flex flex-col gap-2 pt-2">
               {isAuthenticated ? (
                 <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
