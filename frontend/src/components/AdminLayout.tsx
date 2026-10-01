@@ -2,7 +2,7 @@ import { Outlet } from "react-router"
 import AdminSidebar from "./AdminSidebar"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Menu, Wrench } from "lucide-react"
+import { Menu, BookOpen } from "lucide-react"
 
 export default function AdminLayout() {
   return (
@@ -35,8 +35,10 @@ export default function AdminLayout() {
         {/* Mobile header */}
         <header className="md:hidden flex h-16 items-center justify-center border-b bg-card">
           <div className="flex items-center gap-2 font-bold">
-            <Wrench className="h-5 w-5 text-primary" />
-            <span className="text-sm">TAMZ<span className="text-primary">Garage</span></span>
+            <BookOpen className="h-5 w-5 text-primary" />
+            <span className="text-sm">
+              Buku<span className="text-primary">Masjid</span>
+            </span>
           </div>
         </header>
 

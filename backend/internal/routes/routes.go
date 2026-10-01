@@ -9,36 +9,37 @@ import (
 
 // SetupRoutes registers all API routes.
 //
-// Permission layout:
-//   /api/auth/*         — public + auth-protected (PostLogin reads JWT)
-//   /api/auth/me        — JWT-only (any authenticated user)
-//   /api/users/*        — gated per-endpoint by `users:*` permissions
-//   /api/roles/*        — gated per-endpoint by `roles:*` permissions
-//   /api/permissions    — `roles:read` (admin UI catalog)
-//   /api/customers/*    — gated by `customers:*`
-//   /api/vehicles/*     — gated by `vehicles:*`
-//   /api/work-orders/*  — gated by `workorders:*`
-//   /api/spareparts/*   — gated by `spareparts:*`
-//   /api/invoices/*     — gated by `invoices:*`
-//   /api/dashboard/*    — gated by `dashboard:read`
+// Permission layout (Buku Masjid):
+//
+//	/api/auth/*             — public + auth-protected (PostLogin reads JWT)
+//	/api/books/*            — gated by `books:*`
+//	/api/categories/*       — gated by `categories:*`
+//	/api/transactions/*     — gated by `transactions:*`
+//	/api/reports/*          — gated by `reports:read`
+//	/api/lecturings/*       — gated by `lecturings:*`
+//	/api/masjid-settings    — gated by `settings:*`
+//	/api/users/*            — gated per-endpoint by `users:*` permissions
+//	/api/roles/*            — gated per-endpoint by `roles:*` permissions
 func SetupRoutes(
 	app *fiber.App,
 	authHandler *handlers.AuthHandler,
 	userHandler *handlers.UserHandler,
 	roleHandler *handlers.RoleHandler,
-	customerHandler *handlers.CustomerHandler,
-	sparepartHandler *handlers.SparepartHandler,
-	workOrderHandler *handlers.WorkOrderHandler,
-	invoiceHandler *handlers.InvoiceHandler,
-	dashboardHandler *handlers.DashboardHandler,
-	orgHandler *handlers.OrganizationHandler,
-	branchHandler *handlers.BranchHandler,
-	attendanceHandler *handlers.AttendanceHandler,
+	bookHandler *handlers.BookHandler,
+	categoryHandler *handlers.CategoryHandler,
+	transactionHandler *handlers.TransactionHandler,
+	masjidSettingsHandler *handlers.MasjidSettingsHandler,
+	lecturingHandler *handlers.LecturingHandler,
+	publicDisplayHandler *handlers.PublicDisplayHandler,
 	jwtSecret string,
 ) {
 	api := app.Group("/api")
 
 	resolver := func() string { return jwtSecret }
+
+	// ─── Public Display (Layar TV Masjid) ─────────────────────────────
+	api.Get("/public/display", publicDisplayHandler.GetDisplayData)
+	api.Get("/public/display/:slug", publicDisplayHandler.GetDisplayData)
 
 	// Public auth endpoints (register, login, reset, google). No RequireAuth.
 	auth := api.Group("/auth")
@@ -54,45 +55,50 @@ func SetupRoutes(
 	authProtected.Get("/me", authHandler.Me)
 	authProtected.Put("/password", authHandler.ChangePassword)
 
-	// ─── Organization (bengkel profile, Settings page) ────────────────
-	org := api.Group("/organization", middleware.RequireAuth(resolver))
-	org.Get("/", middleware.RequirePermission("settings:read"), orgHandler.GetOrganization)
-	org.Put("/", middleware.RequirePermission("settings:write"), orgHandler.UpdateOrganization)
+	// ─── Buku Kas (cash books) ────────────────────────────────────────
+	books := api.Group("/books", middleware.RequireAuth(resolver))
+	books.Get("/", middleware.RequirePermission("books:read"), bookHandler.ListBooks)
+	books.Post("/", middleware.RequirePermission("books:write"), bookHandler.CreateBook)
+	books.Get("/:id", middleware.RequirePermission("books:read"), bookHandler.GetBook)
+	books.Put("/:id", middleware.RequirePermission("books:write"), bookHandler.UpdateBook)
+	books.Delete("/:id", middleware.RequirePermission("books:delete"), bookHandler.DeleteBook)
 
-	// ─── Branches (cabang, multi-outlet) ─────────────────────────────
-	// Branch management is gated behind the settings permission.
-	branches := api.Group("/branches", middleware.RequireAuth(resolver))
-	branches.Get("/", middleware.RequirePermission("settings:read"), branchHandler.ListBranches)
-	branches.Post("/", middleware.RequirePermission("settings:write"), branchHandler.CreateBranch)
-	branches.Get("/:id", middleware.RequirePermission("settings:read"), branchHandler.GetBranch)
-	branches.Put("/:id", middleware.RequirePermission("settings:write"), branchHandler.UpdateBranch)
-	branches.Delete("/:id", middleware.RequirePermission("settings:write"), branchHandler.DeleteBranch)
+	// ─── Kategori (income/expense categories) ─────────────────────────
+	categories := api.Group("/categories", middleware.RequireAuth(resolver))
+	categories.Get("/", middleware.RequirePermission("categories:read"), categoryHandler.ListCategories)
+	categories.Post("/", middleware.RequirePermission("categories:write"), categoryHandler.CreateCategory)
+	categories.Put("/:id", middleware.RequirePermission("categories:write"), categoryHandler.UpdateCategory)
+	categories.Delete("/:id", middleware.RequirePermission("categories:delete"), categoryHandler.DeleteCategory)
 
-	// ─── Absensi (attendance) ────────────────────────────────────────
-	attendance := api.Group("/attendance", middleware.RequireAuth(resolver))
-	attendance.Post("/checkin", middleware.RequirePermission("attendance:write"), attendanceHandler.CheckIn)
-	attendance.Post("/checkout", middleware.RequirePermission("attendance:write"), attendanceHandler.CheckOut)
-	attendance.Get("/today", middleware.RequirePermission("attendance:read"), attendanceHandler.Today)
-	attendance.Get("/report", middleware.RequirePermission("attendance_reports:read"), attendanceHandler.SalaryReport)
-	attendance.Get("/", middleware.RequirePermission("attendance_reports:read"), attendanceHandler.List)
-	// Admin manual input absensi karyawan (PRD-ABSENSI Fase revisi).
-	attendance.Post("/", middleware.RequirePermission("attendance_reports:read"), attendanceHandler.AdminCreate)
-	attendance.Delete("/:id", middleware.RequirePermission("attendance_reports:read"), attendanceHandler.AdminDelete)
+	// ─── Transaksi (pemasukan / pengeluaran) ──────────────────────────
+	txs := api.Group("/transactions", middleware.RequireAuth(resolver))
+	txs.Get("/", middleware.RequirePermission("transactions:read"), transactionHandler.ListTransactions)
+	txs.Post("/", middleware.RequirePermission("transactions:write"), transactionHandler.CreateTransaction)
+	txs.Put("/:id", middleware.RequirePermission("transactions:write"), transactionHandler.UpdateTransaction)
+	txs.Delete("/:id", middleware.RequirePermission("transactions:delete"), transactionHandler.DeleteTransaction)
 
-	shifts := api.Group("/shifts", middleware.RequireAuth(resolver))
-	shifts.Get("/", middleware.RequirePermission("shifts:read"), attendanceHandler.ListShifts)
-	shifts.Post("/", middleware.RequirePermission("shifts:write"), attendanceHandler.CreateShift)
-	shifts.Get("/assignments", middleware.RequirePermission("shifts:read"), attendanceHandler.ListAssignments)
-	shifts.Post("/assign", middleware.RequirePermission("shifts:write"), attendanceHandler.AssignShift)
+	// ─── Laporan (monthly / category / weekly) ────────────────────────
+	reports := api.Group("/reports", middleware.RequireAuth(resolver))
+	reports.Get("/monthly", middleware.RequirePermission("reports:read"), transactionHandler.MonthlyReport)
+	reports.Get("/category", middleware.RequirePermission("reports:read"), transactionHandler.CategoryReport)
+	reports.Get("/weekly", middleware.RequirePermission("reports:read"), transactionHandler.WeeklyReport)
 
-	leaves := api.Group("/leaves", middleware.RequireAuth(resolver))
-	leaves.Get("/", middleware.RequirePermission("leaves:read"), attendanceHandler.ListLeaves)
-	leaves.Post("/", middleware.RequirePermission("leaves:write"), attendanceHandler.CreateLeave)
-	leaves.Patch("/:id/decide", middleware.RequirePermission("leaves:approve"), attendanceHandler.DecideLeave)
+	// ─── Jadwal Pengajian & Khatib ─────────────────────────────────
+	lecturings := api.Group("/lecturings", middleware.RequireAuth(resolver))
+	lecturings.Get("/", middleware.RequirePermission("lecturings:read"), lecturingHandler.ListLecturings)
+	lecturings.Post("/", middleware.RequirePermission("lecturings:write"), lecturingHandler.CreateLecturing)
+	lecturings.Put("/:id", middleware.RequirePermission("lecturings:write"), lecturingHandler.UpdateLecturing)
+	lecturings.Delete("/:id", middleware.RequirePermission("lecturings:delete"), lecturingHandler.DeleteLecturing)
+
+	// ─── Profil Masjid (settings) ─────────────────────────────────────
+	settings := api.Group("/masjid-settings", middleware.RequireAuth(resolver))
+	settings.Get("/", middleware.RequirePermission("settings:read"), masjidSettingsHandler.GetSettings)
+	settings.Put("/", middleware.RequirePermission("settings:write"), masjidSettingsHandler.UpdateSettings)
 
 	// ─── Users (admin-only via permission keys) ───────────────────────
 	users := api.Group("/users", middleware.RequireAuth(resolver))
 	users.Get("/", middleware.RequirePermission("users:read"), userHandler.ListUsers)
+	users.Post("/", middleware.RequirePermission("users:write"), userHandler.CreateUser)
 	users.Get("/:id", middleware.RequirePermission("users:read"), userHandler.GetUser)
 	users.Put("/:id", middleware.RequirePermission("users:write"), userHandler.UpdateUser)
 	users.Delete("/:id", middleware.RequirePermission("users:delete"), userHandler.DeleteUser)
@@ -106,58 +112,4 @@ func SetupRoutes(
 
 	perms := api.Group("/permissions", middleware.RequireAuth(resolver))
 	perms.Get("/", middleware.RequirePermission("roles:read"), roleHandler.ListPermissions)
-
-	// ─── Dashboard ────────────────────────────────────────────────────
-	dashboard := api.Group("/dashboard", middleware.RequireAuth(resolver))
-	dashboard.Get("/summary", middleware.RequirePermission("dashboard:read"), dashboardHandler.Summary)
-
-	// ─── Customers ────────────────────────────────────────────────────
-	customers := api.Group("/customers", middleware.RequireAuth(resolver))
-	customers.Get("/phone/:phone", middleware.RequirePermission("customers:read"), customerHandler.GetCustomerByPhone)
-	customers.Get("/", middleware.RequirePermission("customers:read"), customerHandler.ListCustomers)
-	customers.Post("/", middleware.RequirePermission("customers:write"), customerHandler.CreateCustomer)
-	customers.Get("/:id", middleware.RequirePermission("customers:read"), customerHandler.GetCustomer)
-	customers.Put("/:id", middleware.RequirePermission("customers:write"), customerHandler.UpdateCustomer)
-	customers.Delete("/:id", middleware.RequirePermission("customers:delete"), customerHandler.DeleteCustomer)
-
-	// ─── Vehicles ─────────────────────────────────────────────────────
-	vehicles := api.Group("/vehicles", middleware.RequireAuth(resolver))
-	vehicles.Get("/plate/:plate", middleware.RequirePermission("vehicles:read"), customerHandler.FindVehicleByPlate)
-	vehicles.Post("/", middleware.RequirePermission("vehicles:write"), customerHandler.CreateVehicle)
-	vehicles.Get("/:id", middleware.RequirePermission("vehicles:read"), customerHandler.GetVehicle)
-	vehicles.Put("/:id", middleware.RequirePermission("vehicles:write"), customerHandler.UpdateVehicle)
-	vehicles.Delete("/:id", middleware.RequirePermission("vehicles:delete"), customerHandler.DeleteVehicle)
-
-	// ─── Spareparts ───────────────────────────────────────────────────
-	spareparts := api.Group("/spareparts", middleware.RequireAuth(resolver))
-	spareparts.Get("/low-stock", middleware.RequirePermission("spareparts:read"), sparepartHandler.LowStock)
-	spareparts.Get("/", middleware.RequirePermission("spareparts:read"), sparepartHandler.ListSpareparts)
-	spareparts.Post("/", middleware.RequirePermission("spareparts:write"), sparepartHandler.CreateSparepart)
-	spareparts.Get("/:id", middleware.RequirePermission("spareparts:read"), sparepartHandler.GetSparepart)
-	spareparts.Put("/:id", middleware.RequirePermission("spareparts:write"), sparepartHandler.UpdateSparepart)
-	spareparts.Delete("/:id", middleware.RequirePermission("spareparts:delete"), sparepartHandler.DeleteSparepart)
-	spareparts.Get("/:id/stock-history", middleware.RequirePermission("spareparts:read"), sparepartHandler.StockHistory)
-	spareparts.Post("/:id/stock", middleware.RequirePermission("spareparts:write"), sparepartHandler.AdjustStock)
-	spareparts.Post("/:id/image", middleware.RequirePermission("spareparts:write"), sparepartHandler.UploadImage)
-
-	// ─── Work Orders ──────────────────────────────────────────────────
-	workOrders := api.Group("/work-orders", middleware.RequireAuth(resolver))
-	workOrders.Get("/", middleware.RequirePermission("workorders:read"), workOrderHandler.ListWorkOrders)
-	workOrders.Post("/", middleware.RequirePermission("workorders:write"), workOrderHandler.CreateWorkOrder)
-	workOrders.Get("/:id", middleware.RequirePermission("workorders:read"), workOrderHandler.GetWorkOrder)
-	workOrders.Patch("/:id/status", middleware.RequirePermission("workorders:write"), workOrderHandler.UpdateStatus)
-	workOrders.Post("/:id/approve", middleware.RequirePermission("workorders:write"), workOrderHandler.ApproveAdditional)
-	workOrders.Post("/:id/reject", middleware.RequirePermission("workorders:write"), workOrderHandler.RejectAdditional)
-	workOrders.Post("/:id/items", middleware.RequirePermission("workorders:write"), workOrderHandler.AddItem)
-	workOrders.Delete("/:id/items/:itemID", middleware.RequirePermission("workorders:write"), workOrderHandler.RemoveItem)
-	workOrders.Post("/:id/parts", middleware.RequirePermission("workorders:write"), workOrderHandler.AddPart)
-	workOrders.Delete("/:id/parts/:partID", middleware.RequirePermission("workorders:write"), workOrderHandler.RemovePart)
-
-	// ─── Invoices ─────────────────────────────────────────────────────
-	invoices := api.Group("/invoices", middleware.RequireAuth(resolver))
-	invoices.Get("/number/:no", middleware.RequirePermission("invoices:read"), invoiceHandler.GetInvoiceByNumber)
-	invoices.Get("/", middleware.RequirePermission("invoices:read"), invoiceHandler.ListInvoices)
-	invoices.Post("/", middleware.RequirePermission("invoices:write"), invoiceHandler.CreateInvoice)
-	invoices.Get("/:id", middleware.RequirePermission("invoices:read"), invoiceHandler.GetInvoice)
-	invoices.Post("/:id/payments", middleware.RequirePermission("invoices:write"), invoiceHandler.AddPayment)
 }

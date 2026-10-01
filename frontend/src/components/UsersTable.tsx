@@ -25,7 +25,6 @@ import type { Role, User } from "@/lib/types"
 import { useAuth } from "@/context/AuthContext"
 import { UserModal } from "@/components/UserModal"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { UserExportImportButtons } from "@/components/ImportUserModal"
 import { Pagination } from "@/components/ui/pagination"
 
 interface UsersTableProps {
@@ -216,13 +215,6 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
           />
         </div>
         <div className="flex items-center gap-2">
-          {canWrite && (
-            <UserExportImportButtons
-              users={users}
-              disabled={loading}
-              onImported={() => void loadUsers()}
-            />
-          )}
           {canWrite && (
             <Button onClick={() => setCreateOpen(true)} className="gap-2">
               <UserPlus className="h-4 w-4" />

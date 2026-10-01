@@ -95,7 +95,7 @@ func NewEnv() *Env {
 		SMTPPort:       getEnv("SMTP_PORT", "587"),
 		SMTPUser:       getEnv("SMTP_USER", ""),
 		SMTPPassword:   getEnv("SMTP_PASSWORD", ""),
-		SMTPFrom:       getEnv("SMTP_FROM", "no-reply@tamzgarage.my.id"),
+		SMTPFrom:       getEnv("SMTP_FROM", "no-reply@masjidannur.my.id"),
 		FrontendURL:    getEnv("FRONTEND_URL", "http://localhost:5178"),
 		AllowedOrigins: parseCSV(getEnv("ALLOWED_ORIGINS", "")),
 	}

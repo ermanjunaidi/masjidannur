@@ -37,6 +37,54 @@ func (s *UserService) GetUser(id uint) (*models.User, error) {
 	return s.userRepo.FindByID(id)
 }
 
+// CreateUserInput is the payload accepted by POST /api/users. The new
+// account always joins the CALLING admin's organization — never a fresh
+// tenant — so the admin dashboard keeps showing one masjid's workspace.
+type CreateUserInput struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	RoleIDs  []uint `json:"role_ids"`
+}
+
+// CreateUser adds a user INSIDE the given organization (the actor's).
+// Email must be globally unique; password is required and stored hashed.
+func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (*models.User, error) {
+	if input.Name == "" || input.Email == "" {
+		return nil, errors.New("nama dan email wajib diisi")
+	}
+	if len(input.Password) < 6 {
+		return nil, errors.New("password minimal 6 karakter")
+	}
+	existing, err := s.userRepo.FindByEmail(input.Email)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrEmailTaken
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, errors.New("failed to hash password")
+	}
+	user := &models.User{
+		Name:           input.Name,
+		Email:          input.Email,
+		Password:       string(hashed),
+		IsActive:       true,
+		OrganizationID: orgID,
+		BranchID:       branchID,
+	}
+	if err := s.userRepo.CreateWithRoles(user, input.RoleIDs); err != nil {
+		return nil, err
+	}
+	full, err := s.userRepo.FindByID(user.ID)
+	if err != nil || full == nil {
+		return nil, ErrUserNotFound
+	}
+	return full, nil
+}
+
 // UpdateUserInput is the payload accepted by PUT /api/users/:id.
 // Password is OPTIONAL — when empty, the existing hash is kept.
 // RoleIDs replaces the full M2M set (NOT a delta merge).
@@ -46,13 +94,11 @@ func (s *UserService) GetUser(id uint) (*models.User, error) {
 // keys (`role_ids`, `is_active`). Mismatch would silently strip existing
 // bindings on every edit.
 type UpdateUserInput struct {
-	Name           string  `json:"name,omitempty"`
-	Email          string  `json:"email,omitempty"`
-	Password       string  `json:"password,omitempty"`
-	IsActive       *bool   `json:"is_active,omitempty"`
-	RoleIDs        []uint  `json:"role_ids,omitempty"`
-	DailyWage      *float64 `json:"daily_wage,omitempty"`
-	DailyAllowance *float64 `json:"daily_allowance,omitempty"`
+	Name     string  `json:"name,omitempty"`
+	Email    string  `json:"email,omitempty"`
+	Password string  `json:"password,omitempty"`
+	IsActive *bool   `json:"is_active,omitempty"`
+	RoleIDs  []uint  `json:"role_ids,omitempty"`
 }
 
 // UpdateUser applies the input to an existing user record.
@@ -82,12 +128,6 @@ func (s *UserService) UpdateUser(id uint, input *UpdateUserInput) (*models.User,
 	}
 	if input.IsActive != nil {
 		user.IsActive = *input.IsActive
-	}
-	if input.DailyWage != nil {
-		user.DailyWage = *input.DailyWage
-	}
-	if input.DailyAllowance != nil {
-		user.DailyAllowance = *input.DailyAllowance
 	}
 	if input.Password != "" {
 		hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)

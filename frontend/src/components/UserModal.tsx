@@ -166,7 +166,7 @@ export function ModalShell({
 
 // ─── UserModal ────────────────────────────────────────────────────────────────
 
-import { usersApi, authApi, ApiError } from "@/lib/api"
+import { usersApi, ApiError } from "@/lib/api"
 import type { Role, User } from "@/lib/types"
 
 interface UserModalProps {
@@ -191,8 +191,6 @@ export function UserModal({
   const [password, setPassword] = useState("")
   const [selectedRoleIDs, setSelectedRoleIDs] = useState<number[]>([])
   const [isActive, setIsActive] = useState(true)
-  const [dailyWage, setDailyWage] = useState("")
-  const [dailyAllowance, setDailyAllowance] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -204,8 +202,6 @@ export function UserModal({
     setPassword("") // always start empty: blank = no change
     setSelectedRoleIDs(initialUser?.roles?.map((r) => r.id) ?? [])
     setIsActive(initialUser?.is_active ?? true)
-    setDailyWage(initialUser?.daily_wage ? String(initialUser.daily_wage) : "")
-    setDailyAllowance(initialUser?.daily_allowance ? String(initialUser.daily_allowance) : "")
     setError(null)
     setSaving(false)
   }, [open, initialUser])
@@ -229,28 +225,23 @@ export function UserModal({
     setSaving(true)
     try {
       if (mode === "create") {
-        // Use the auth register endpoint to get full password hashing;
-        // assign roles in a follow-up update so we can keep the
-        // create payload shape minimal.
-        const resp = await authApi.register(name.trim(), email.trim(), password)
-        // Apply role ids via the admin update endpoint. Calling update
-        // without a password keeps the existing bcrypt hash in place.
-        if (selectedRoleIDs.length > 0) {
-          const updated = await usersApi.update(resp.user.id, {
-            role_ids: selectedRoleIDs,
-          })
-          onSaved(updated)
-        } else {
-          onSaved(resp.user)
-        }
+        // Admin-side create endpoint: the new account joins the CURRENT
+        // admin's masjid organization. (The old flow reused the public
+        // register endpoint, which silently created a separate tenant and
+        // made the new user disappear from this masjid's user list.)
+        const created = await usersApi.create({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          role_ids: selectedRoleIDs,
+        })
+        onSaved(created)
       } else if (initialUser) {
         const payload: Parameters<typeof usersApi.update>[1] = {
           name: name.trim(),
           email: email.trim(),
           is_active: isActive,
           role_ids: selectedRoleIDs,
-          daily_wage: Number(dailyWage) || 0,
-          daily_allowance: Number(dailyAllowance) || 0,
         }
         if (password) {
           payload.password = password
@@ -406,36 +397,6 @@ export function UserModal({
           </div>
         )}
       </div>
-
-      {mode === "edit" && (
-        <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
-          <p className="text-sm font-medium">Gaji Karyawan</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="user-wage">Gaji Pokok Harian (Rp)</Label>
-              <Input
-                id="user-wage"
-                type="number"
-                inputMode="numeric"
-                value={dailyWage}
-                onChange={(e) => setDailyWage(e.target.value)}
-                placeholder="0"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="user-allowance">Tunjangan Harian (Rp)</Label>
-              <Input
-                id="user-allowance"
-                type="number"
-                inputMode="numeric"
-                value={dailyAllowance}
-                onChange={(e) => setDailyAllowance(e.target.value)}
-                placeholder="0"
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {mode === "edit" && (
         <div className="flex items-center gap-2">

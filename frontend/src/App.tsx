@@ -11,12 +11,12 @@ import AdminDashboard from "@/pages/AdminDashboard"
 import AdminUsers from "@/pages/AdminUsers"
 import SettingsPage from "@/pages/SettingsPage"
 import SecurityPage from "@/pages/SecurityPage"
-import CustomersPage from "@/pages/CustomersPage"
-import WorkOrdersPage from "@/pages/WorkOrdersPage"
-import WorkOrderDetailPage from "@/pages/WorkOrderDetailPage"
-import SparepartsPage from "@/pages/SparepartsPage"
-import InvoicesPage from "@/pages/InvoicesPage"
-import AttendancePage from "@/pages/AttendancePage"
+import BooksPage from "@/pages/BooksPage"
+import CategoriesPage from "@/pages/CategoriesPage"
+import TransactionsPage from "@/pages/TransactionsPage"
+import ReportsPage from "@/pages/ReportsPage"
+import LecturingsPage from "@/pages/LecturingsPage"
+import PublicDisplayPage from "@/pages/PublicDisplayPage"
 
 export default function App() {
   return (
@@ -25,6 +25,8 @@ export default function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
+          <Route path="/display" element={<PublicDisplayPage />} />
+          <Route path="/display/:slug" element={<PublicDisplayPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -40,14 +42,12 @@ export default function App() {
             }
           >
             <Route index element={<AdminDashboard />} />
-            <Route path="customers" element={<CustomersPage />} />
-            <Route path="work-orders" element={<WorkOrdersPage />} />
-            <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
-            <Route path="spareparts" element={<SparepartsPage />} />
-            <Route path="invoices" element={<InvoicesPage />} />
-            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="books" element={<BooksPage />} />
+            <Route path="categories" element={<CategoriesPage />} />
+            <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="lecturings" element={<LecturingsPage />} />
             <Route path="users" element={<AdminUsers />} />
-            <Route path="analytics" element={<AdminDashboard />} />
             <Route path="security" element={<SecurityPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

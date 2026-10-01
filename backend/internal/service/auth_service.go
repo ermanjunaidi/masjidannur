@@ -23,7 +23,7 @@ import (
 )
 
 // DefaultRoleName is the role new users get on Register. In the SaaS
-// model every signup becomes the admin of their own bengkel/workspace,
+// model every signup becomes the admin of their own masjid/workspace,
 // so new accounts receive the `admin` role (not `user`). Platform-level
 // oversight belongs to the separate `superadmin` role.
 const DefaultRoleName = "admin"
@@ -133,7 +133,7 @@ func (s *AuthService) ChangePassword(userID uint, input *ChangePasswordInput) er
 	return s.userRepo.UpdatePassword(userID, string(hashed))
 }
 
-// Register creates a new bengkel organization plus an admin account that
+// Register creates a new masjid organization plus an admin account that
 // owns it, and returns a JWT with the freshly flattened permission set.
 func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
 	existing, _ := s.userRepo.FindByEmail(input.Email)
@@ -172,6 +172,8 @@ func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
 	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
 		return nil, errors.New("failed to create user")
 	}
+
+	s.provisionTenantWorkspace(org.ID, org.Name, user.ID)
 
 	full, err := s.userRepo.FindByID(user.ID)
 	if err != nil || full == nil {
@@ -242,7 +244,7 @@ func (s *AuthService) ForgotPassword(email string) error {
 
 	link := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(s.frontendURL, "/"), token)
 	if s.smtp.Host != "" {
-		if err := s.sendEmail(user.Email, "Reset Password — TAMZ Garage", fmt.Sprintf(
+		if err := s.sendEmail(user.Email, "Reset Password — Buku Masjid", fmt.Sprintf(
 			"Halo %s,\n\nKlik link berikut untuk mereset password Anda (berlaku 1 jam):\n%s\n\nJika tidak meminta reset, abaikan email ini.", user.Name, link,
 		)); err != nil {
 			return errors.New("failed to send reset email")
@@ -368,7 +370,7 @@ func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*A
 	return &AuthResponse{Token: token, User: full}, nil
 }
 
-// createGoogleUser registers a new bengkel admin for a Google signup.
+// createGoogleUser registers a new masjid admin for a Google signup.
 func (s *AuthService) createGoogleUser(name, email string) (*models.User, error) {
 	adminRole, err := s.roleRepo.FindByName(DefaultRoleName)
 	if err != nil {
@@ -399,5 +401,41 @@ func (s *AuthService) createGoogleUser(name, email string) (*models.User, error)
 	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
 		return nil, errors.New("failed to create user")
 	}
+	s.provisionTenantWorkspace(org.ID, org.Name, user.ID)
 	return user, nil
+}
+
+// provisionTenantWorkspace bootstraps default masjid settings and primary cash book for a new tenant.
+func (s *AuthService) provisionTenantWorkspace(orgID uint, orgName string, userID uint) {
+	baseSlug := repository.Slugify(orgName)
+	slug := baseSlug
+	var count int64
+	s.db.Model(&models.MasjidSettings{}).Where("slug = ?", slug).Count(&count)
+	if count > 0 {
+		slug = fmt.Sprintf("%s-%d", baseSlug, orgID)
+	}
+	masjidName := strings.TrimSpace(orgName)
+	if !strings.HasPrefix(strings.ToLower(masjidName), "masjid") {
+		masjidName = "Masjid " + masjidName
+	}
+	settings := &models.MasjidSettings{
+		OrganizationID: orgID,
+		Slug:           slug,
+		Name:           masjidName,
+		CurrencyCode:   "Rp",
+		CityName:       "Jakarta",
+		Latitude:       -6.2088,
+		Longitude:      106.8456,
+		UpdatedBy:      userID,
+	}
+	_ = s.db.Create(settings).Error
+
+	book := &models.Book{
+		OrganizationID: orgID,
+		BranchID:       0,
+		Name:           "Kas Utama",
+		Description:    "Buku kas operasional utama masjid",
+		IsActive:       true,
+	}
+	_ = s.db.Create(book).Error
 }

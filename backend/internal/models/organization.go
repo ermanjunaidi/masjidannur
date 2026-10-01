@@ -2,9 +2,9 @@ package models
 
 import "time"
 
-// Organization represents a bengkel workspace (tenant) in the SaaS model.
+// Organization represents a masjid workspace (tenant) in the SaaS model.
 // Every self-registered user becomes the admin of their own organization,
-// and all workshop data (customers, vehicles, spareparts, work orders,
+// and all masjid data (books, categories, transactions, lecturings,
 // invoices) belongs to exactly one organization. Users with no
 // organization (organization_id = 0) are platform-level superadmins who
 // see everything.

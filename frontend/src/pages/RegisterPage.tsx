@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useAuth } from "@/context/AuthContext"
 import { authApi } from "@/lib/api"
-import { Wrench, Loader2, Eye, EyeOff, Check } from "lucide-react"
+import { Moon, Loader2, Eye, EyeOff, Check } from "lucide-react"
 
 export default function RegisterPage() {
   const { register } = useAuth()
@@ -54,18 +54,18 @@ export default function RegisterPage() {
         className="flex items-center gap-2 font-bold text-xl mb-6 hover:opacity-80 transition-opacity"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Wrench className="h-4.5 w-4.5" />
+          <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          TAMZ<span className="text-primary">Garage</span>
+          Buku<span className="text-primary">Masjid</span>
         </span>
       </Link>
 
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Buat Akun Bengkel</CardTitle>
+          <CardTitle>Buat Akun Buku Masjid</CardTitle>
           <CardDescription>
-            Daftar gratis — Anda otomatis menjadi <b>Admin</b> bengkel Anda.
+            Daftar gratis — Anda otomatis menjadi <b>Admin</b> masjid Anda.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -77,11 +77,11 @@ export default function RegisterPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="name">Nama / Nama Bengkel</Label>
+              <Label htmlFor="name">Nama / Nama Masjid</Label>
               <Input
                 id="name"
                 type="text"
-                placeholder="Bengkel Aneka Motor"
+                placeholder="Masjid Aneka Amal"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
@@ -93,7 +93,7 @@ export default function RegisterPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="bengkel@email.com"
+                placeholder="masjid@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
@@ -140,8 +140,8 @@ export default function RegisterPage() {
 
             <ul className="space-y-1.5 text-xs text-muted-foreground">
               {[
-                "Akses penuh sebagai Admin bengkel",
-                "Kelola pelanggan, WO, stok & invoice",
+                "Akses penuh sebagai Admin masjid",
+                "Kelola buku kas, kategori & transaksi",
                 "Gratis — tanpa kartu kredit",
               ].map((t) => (
                 <li key={t} className="flex items-center gap-1.5">

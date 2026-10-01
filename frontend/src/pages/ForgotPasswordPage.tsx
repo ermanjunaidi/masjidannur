@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Wrench, Loader2, MailCheck, ArrowLeft } from "lucide-react"
+import { Moon, Loader2, MailCheck, ArrowLeft } from "lucide-react"
 import { authApi } from "@/lib/api"
 
 export default function ForgotPasswordPage() {
@@ -38,10 +38,10 @@ export default function ForgotPasswordPage() {
         className="flex items-center gap-2 font-bold text-xl mb-6 hover:opacity-80 transition-opacity"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Wrench className="h-4.5 w-4.5" />
+          <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          TAMZ<span className="text-primary">Garage</span>
+          Buku<span className="text-primary">Masjid</span>
         </span>
       </Link>
 

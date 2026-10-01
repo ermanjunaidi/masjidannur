@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useAuth } from "@/context/AuthContext"
 import { authApi } from "@/lib/api"
-import { Wrench, Loader2, Eye, EyeOff } from "lucide-react"
+import { Moon, Loader2, Eye, EyeOff } from "lucide-react"
 
 export default function LoginPage() {
   const { login, loginWithToken } = useAuth()
@@ -60,17 +60,17 @@ export default function LoginPage() {
         className="flex items-center gap-2 font-bold text-xl mb-6 hover:opacity-80 transition-opacity"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Wrench className="h-4.5 w-4.5" />
+          <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          TAMZ<span className="text-primary">Garage</span>
+          Buku<span className="text-primary">Masjid</span>
         </span>
       </Link>
 
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Masuk ke Bengkel</CardTitle>
-          <CardDescription>Kelola bengkel Anda dari mana saja</CardDescription>
+          <CardTitle>Masuk ke Buku Masjid</CardTitle>
+          <CardDescription>Kelola keuangan masjid Anda dari mana saja</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (

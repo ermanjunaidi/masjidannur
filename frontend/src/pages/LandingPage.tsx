@@ -4,28 +4,26 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/context/AuthContext"
 import {
   ArrowRight,
-  Wrench,
+  BookOpen,
   Menu,
   X,
-  Users,
-  ClipboardList,
-  Package,
+  Tags,
   Receipt,
-  BarChart3,
+  FileBarChart,
   ShieldCheck,
   Star,
-  Truck,
-  Gauge,
   Wallet,
   Sparkles,
   Layers,
+  LineChart,
+  Tv,
 } from "lucide-react"
 import { useState } from "react"
 import { authApi } from "@/lib/api"
 
 // Daftar langsung lewat Google: satu klik ke halaman akun Google, tanpa
 // melewati form di /register. Akun baru tetap otomatis dibuat di callback
-// backend dan pemiliknya langsung jadi Admin bengkel.
+// backend dan pemiliknya langsung jadi Admin masjid.
 function startGoogleSignup() {
   window.location.href = authApi.googleAuthUrl()
 }
@@ -42,46 +40,51 @@ function GoogleIcon({ className }: { className?: string }) {
 const navLinks = [
   { href: "#fitur", label: "Fitur" },
   { href: "#cara-kerja", label: "Cara Kerja" },
-  { href: "#harga", label: "Harga" },
   { href: "#faq", label: "FAQ" },
 ]
 
 const features = [
   {
-    icon: Users,
-    title: "Pelanggan & Kendaraan",
+    icon: Tv,
+    title: "Public Display (Layar TV Masjid)",
     description:
-      "Simpan profil pelanggan dan riwayat kendaraan. Cukup ketik nomor HP atau plat, semua data muncul.",
+      "Tampilan layar TV masjid modern: jam digital, jadwal 5 waktu sholat & hitung mundur, petugas Jumat, dan transparansi kas.",
   },
   {
-    icon: ClipboardList,
-    title: "Work Order & Antrean",
+    icon: BookOpen,
+    title: "Buku Catatan Kas",
     description:
-      "Buat WO, kelola antrean harian, lacak status pengerjaan real-time dari mekanik hingga selesai.",
+      "Setiap kegiatan punya buku kas terpisah: pembangunan, operasional, Ramadan, kajian — laporan tidak tercampur.",
   },
   {
-    icon: Package,
-    title: "Sparepart & Stok",
+    icon: Tags,
+    title: "Kategori Pemasukan & Pengeluaran",
     description:
-      "Katalog part, transaksi stok otomatis saat part dipakai, dan peringatan saat stok menipis.",
+      "Kelompokkan donasi, kotak amal, listrik, air, dan kegiatan lain agar laporan mudah dibaca jamaah.",
   },
   {
     icon: Receipt,
-    title: "Invoice & Pembayaran",
+    title: "Input Pemasukan & Pengeluaran",
     description:
-      "Estimasi biaya, tagihan otomatis, pembayaran parsial, dan piutang pelanggan yang terpantau.",
+      "Bendahara cukup masukkan transaksi harian — saldo kas masjid otomatis ter-update setiap saat.",
   },
   {
-    icon: BarChart3,
-    title: "Dashboard & Laporan",
+    icon: FileBarChart,
+    title: "Laporan Bulanan, Kategori & Mingguan",
     description:
-      "Pendapatan hari ini, produktivitas mekanik, dan nilai stok dalam satu pandangan ringkas.",
+      "Laporan kas otomatis: bulanan dengan saldo awal/akhir, rekap per kategori, dan rekap per pekan.",
+  },
+  {
+    icon: Wallet,
+    title: "Transparansi untuk Jamaah",
+    description:
+      "Laporan bisa dipantau pengurus dan jamaah, meningkatkan kepercayaan terhadap dana infak masjid.",
   },
   {
     icon: ShieldCheck,
     title: "Multi-Peran & Aman",
     description:
-      "Owner, kasir, mekanik, gudang — setiap peran punya akses yang tepat. Data aman & ter-audit.",
+      "Admin, bendahara, dan jamaah — setiap peran punya akses yang tepat. Data aman & ter-audit.",
   },
 ]
 
@@ -91,66 +94,61 @@ const steps = [
     step: "01",
     title: "Daftar Gratis",
     description:
-      "Buat akun, dan Anda otomatis menjadi Admin bengkel Anda. Tidak perlu kartu kredit.",
+      "Buat akun, dan Anda otomatis menjadi Admin masjid Anda. Tidak perlu kartu kredit.",
   },
   {
     icon: Layers,
     step: "02",
-    title: "Atur Bengkel Anda",
+    title: "Atur Buku & Kategori",
     description:
-      "Tambah pelanggan, kendaraan, sparepart, dan tim Anda (kasir, mekanik, gudang).",
+      "Buat buku kas per kegiatan dan kategori pemasukan/pengeluaran sesuai kebutuhan masjid.",
   },
   {
-    icon: Gauge,
+    icon: LineChart,
     step: "03",
-    title: "Kelola & Tumbuh",
+    title: "Catat & Pantau",
     description:
-      "Pantau antrean, kelola servis, dan lihat laporan pendapatan real-time setiap hari.",
+      "Input transaksi rutin, dan laporan kas otomatis tersaji setiap saat untuk jamaah.",
   },
 ]
 
-
 const testimonials = [
   {
-    name: "Andi Wijaya",
-    role: "Owner — Bengkel Aneka Motor",
+    name: "Ust. Ahmad Fauzi",
+    role: "Ketua DKM — Masjid Ar-Rahman",
     quote:
-      "Dulu antrean dan catatan servis berantakan. Sekarang semua tertata, pelanggan lihat estimasi jelas, dan pendapatan bulanan selalu akurat.",
+      "Laporan kas bulanan yang dulu harus disusun manual sekarang otomatis. Jamaah makin percaya karena bisa lihat laporan langsung.",
     stars: 5,
   },
   {
-    name: "Rina Kartika",
-    role: "Kasir — AutoCare 88",
+    name: "Hj. Siti Maryam",
+    role: "Bendahara — Masjid Al-Ikhlas",
     quote:
-      "Bikin invoice dan catat pembayaran jadi hitungan detik. Piutang pelanggan tidak pernah terlewat lagi.",
+      "Catat kotak amal dan pengeluaran harian hanya butuh hitungan detik. Saldo kas selalu akurat dan mudah dicek.",
     stars: 5,
   },
   {
-    name: "Budi Hartono",
-    role: "Mekanik — Garage Pro",
+    name: "Bpk. Abdul Karim",
+    role: "Sekretaris — Mushalla An-Nur",
     quote:
-      "Saya bisa langsung input pekerjaan dan klaim sparepart dari bengkel. Stok selalu ter-update otomatis.",
+      "Buku kas pembangunan terpisah dari operasional membuat laporan kegiatan jauh lebih rapi dan jelas.",
     stars: 5,
   },
 ]
 
 const faqs = [
   {
-    q: "Apakah data bengkel saya aman?",
-    a: "Ya. Setiap bengkel memiliki ruang data sendiri, semua akses dilindungi login, dan setiap perubahan penting tercatat (audit trail).",
+    q: "Apakah data keuangan masjid kami aman?",
+    a: "Ya. Setiap masjid memiliki ruang data sendiri, semua akses dilindungi login, dan setiap perubahan penting tercatat (audit trail).",
   },
   {
     q: "Apakah bisa dipakai di banyak perangkat sekaligus?",
-    a: "Bisa. Karena berbasis web, Anda bisa memakainya dari laptop, tablet, atau HP di dalam bengkel secara bersamaan.",
+    a: "Bisa. Karena berbasis web, pengurus dan bendahara bisa memakainya dari laptop, tablet, atau HP secara bersamaan.",
   },
   {
-    q: "Bagaimana jika saya belum pernah pakai aplikasi bengkel?",
-    a: "Sangat mudah. Daftar gratis, lalu ikuti alur: tambah pelanggan → buat work order → selesai → buat invoice. Tidak butuh pelatihan khusus.",
+    q: "Apakah cocok untuk mushalla kecil?",
+    a: "Sangat cocok. Cukup satu buku kas pun bisa langsung dipakai. Buku tambahan bisa dibuat kapan saja saat kegiatan bertambah.",
   },
-  // {
-  //   q: "Apakah saya bisa berhenti kapan saja?",
-  //   a: "Tentu. Paket gratis tidak terbatas waktu, dan Anda bisa upgrade/downgrade kapan saja tanpa biaya tambahan.",
-  // },
 ]
 
 export default function LandingPage() {
@@ -165,10 +163,10 @@ export default function LandingPage() {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-2 font-bold text-xl">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Wrench className="h-4.5 w-4.5" />
+              <BookOpen className="h-4.5 w-4.5" />
             </span>
             <span>
-              TAMZ<span className="text-primary">Garage</span>
+              Buku<span className="text-primary">Masjid</span>
             </span>
           </Link>
 
@@ -183,6 +181,13 @@ export default function LandingPage() {
                 {l.label}
               </a>
             ))}
+            <Link
+              to="/display"
+              className="text-sm font-medium text-emerald-600 hover:text-emerald-500 transition-colors flex items-center gap-1.5"
+            >
+              <Tv className="h-4 w-4" />
+              Layar TV
+            </Link>
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -225,6 +230,15 @@ export default function LandingPage() {
                 {l.label}
               </a>
             ))}
+            {/* Layar TV — public display, selalu terlihat termasuk sebelum login */}
+            <Link
+              to="/display"
+              className="flex items-center gap-2 py-2 text-sm font-medium text-emerald-600 hover:text-emerald-500"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Tv className="h-4 w-4" />
+              Layar TV
+            </Link>
             <div className="flex flex-col gap-2 pt-2">
               {isAuthenticated ? (
                 <Link to="/admin" onClick={() => setMobileMenuOpen(false)}>
@@ -260,19 +274,19 @@ export default function LandingPage() {
           <div className="mx-auto max-w-3xl text-center">
             <Badge variant="outline" className="mb-6 px-3 py-1 text-xs">
               <Sparkles className="mr-1.5 h-3 w-3 text-primary" />
-              Sistem manajemen bengkel berbasis cloud
+              Sistem keuangan masjid berbasis cloud
             </Badge>
             <h1 className="text-4xl font-bold tracking-tight sm:text-6xl leading-tight">
-              Kelola Bengkel Anda{" "}
+              Kelola Kas Masjid{" "}
               <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                Lebih Mudah
+                Transparan
               </span>
             </h1>
             <p className="mt-6 text-lg leading-8 text-muted-foreground">
-              Dari antrean servis, work order, sparepart, hingga invoice dan
-              laporan — semua dalam satu aplikasi web yang bisa diakses dari
-              mana saja. Daftar gratis dengan akun Google dan langsung jadi
-              Admin bengkel Anda.
+              Dari buku catatan kas, kategori, transaksi harian, hingga laporan
+              bulanan — semua dalam satu aplikasi web yang bisa diakses dari
+              mana saja. Tingkatkan kepercayaan jamaah dengan laporan yang
+              terbuka.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
               <Button size="lg" className="gap-2" onClick={startGoogleSignup}>
@@ -286,7 +300,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Tanpa kartu kredit • Setup 5 menit • Batalkan kapan saja
+              Tanpa kartu kredit • Setup 5 menit • Untuk masjid & mushalla
             </p>
           </div>
 
@@ -298,15 +312,15 @@ export default function LandingPage() {
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 <span className="ml-3 rounded bg-muted px-3 py-0.5 text-[10px] text-muted-foreground">
-                  tamzgarage.app/dashboard
+                  bukumasjid.app/dashboard
                 </span>
               </div>
               <div className="grid gap-4 p-4 sm:grid-cols-4">
                 {[
-                  { label: "Pendapatan Hari Ini", value: "Rp 1.240.000", icon: Wallet, tone: "text-emerald-600 dark:text-emerald-400" },
-                  { label: "WO Hari Ini", value: "12", icon: ClipboardList, tone: "text-blue-600 dark:text-blue-400" },
-                  { label: "Menunggu Antrean", value: "4", icon: Truck, tone: "text-amber-600 dark:text-amber-400" },
-                  { label: "Part Perlu Beli", value: "3", icon: Package, tone: "text-red-600 dark:text-red-400" },
+                  { label: "Saldo Kas", value: "Rp 84.500.000", icon: Wallet, tone: "text-primary" },
+                  { label: "Pemasukan Bulan Ini", value: "Rp 12.300.000", icon: BookOpen, tone: "text-emerald-600 dark:text-emerald-400" },
+                  { label: "Pengeluaran Bulan Ini", value: "Rp 6.750.000", icon: Receipt, tone: "text-rose-600 dark:text-rose-400" },
+                  { label: "Buku Kas Aktif", value: "4", icon: FileBarChart, tone: "text-blue-600 dark:text-blue-400" },
                 ].map((s) => (
                   <div key={s.label} className="rounded-xl border bg-muted/30 p-4">
                     <div className="flex items-center justify-between">
@@ -319,36 +333,30 @@ export default function LandingPage() {
               </div>
               <div className="grid gap-4 p-4 sm:grid-cols-2">
                 <div className="rounded-xl border p-4">
-                  <p className="mb-3 text-xs font-medium text-muted-foreground">Antrean Hari Ini</p>
+                  <p className="mb-3 text-xs font-medium text-muted-foreground">Transaksi Terakhir</p>
                   <div className="space-y-2">
                     {[
-                      { c: "Budi Santoso", p: "B 1234 ABC", s: "dikerjakan" },
-                      { c: "Siti Rahayu", p: "D 5678 XYZ", s: "menunggu" },
-                      { c: "Agus Salim", p: "F 1122 CD", s: "selesai" },
+                      { d: "Donasi pembangunan", t: "+ Rp 2.500.000", in: true },
+                      { d: "Pembayaran listrik", t: "− Rp 450.000", in: false },
+                      { d: "Kotak amal Jumat", t: "+ Rp 1.150.000", in: true },
                     ].map((r, i) => (
                       <div key={i} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
-                        <div>
-                          <p className="font-medium">{r.c}</p>
-                          <p className="font-mono text-[10px] text-muted-foreground">{r.p}</p>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={
-                            r.s === "dikerjakan"
-                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                              : r.s === "selesai"
-                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                              : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                          }
+                        <p className="font-medium">{r.d}</p>
+                        <span
+                          className={`font-semibold tabular-nums ${
+                            r.in
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
+                          }`}
                         >
-                          {r.s === "dikerjakan" ? "Dikerjakan" : r.s === "selesai" ? "Selesai" : "Menunggu"}
-                        </Badge>
+                          {r.t}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
                 <div className="rounded-xl border p-4">
-                  <p className="mb-3 text-xs font-medium text-muted-foreground">Pendapatan Mingguan</p>
+                  <p className="mb-3 text-xs font-medium text-muted-foreground">Pemasukan Mingguan</p>
                   <div className="flex h-24 items-end gap-2">
                     {[40, 65, 50, 80, 60, 90, 75].map((h, i) => (
                       <div key={i} className="flex-1 rounded-t bg-primary/70" style={{ height: `${h}%` }} />
@@ -368,8 +376,8 @@ export default function LandingPage() {
       <section className="border-y bg-muted/30">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-4 py-10 sm:px-6 lg:grid-cols-4 lg:px-8">
           {[
-            { v: "500+", l: "Bengkel aktif" },
-            { v: "10rb+", l: "Work order terselesaikan" },
+            { v: "500+", l: "Masjid & mushalla" },
+            { v: "50rb+", l: "Transaksi tercatat" },
             { v: "99,9%", l: "Waktu aktif server" },
             { v: "4.8/5", l: "Rating pengguna" },
           ].map((s) => (
@@ -387,11 +395,11 @@ export default function LandingPage() {
           <div className="mx-auto max-w-2xl text-center mb-14">
             <Badge variant="outline" className="mb-4 text-xs">Fitur Lengkap</Badge>
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Semua yang bengkel butuhkan, dalam satu aplikasi
+              Semua yang masjid butuhkan, dalam satu aplikasi
             </h2>
             <p className="mt-4 text-muted-foreground">
-              Tidak perlu aplikasi terpisah untuk antrean, servis, stok, atau
-              kasir. Semua tersambung dan bekerja otomatis.
+              Tidak perlu catatan manual atau aplikasi terpisah. Buku kas,
+              transaksi, dan laporan tersambung otomatis.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -441,68 +449,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── Pricing ─────────────────────────────────────────────────── */}
-      {/* <section id="harga" className="py-20 sm:py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-2xl text-center mb-14">
-            <Badge variant="outline" className="mb-4 text-xs">Harga</Badge>
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Harga transparan, tanpa biaya tersembunyi
-            </h2>
-            <p className="mt-4 text-muted-foreground">
-              Mulai gratis. Upgrade kapan saja sesuai pertumbuhan bengkel Anda.
-            </p>
-          </div>
-          <div className="grid gap-6 md:grid-cols-3 items-stretch">
-            {plans.map((p) => (
-              <div
-                key={p.name}
-                className={`relative flex flex-col rounded-2xl border bg-card p-6 ${
-                  p.highlighted
-                    ? "border-primary shadow-xl shadow-primary/10 md:-mt-3 md:mb-3"
-                    : ""
-                }`}
-              >
-                {p.highlighted && (
-                  <Badge className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    Paling Populer
-                  </Badge>
-                )}
-                <h3 className="font-semibold">{p.name}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{p.tagline}</p>
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-3xl font-bold">{p.price}</span>
-                  <span className="text-sm text-muted-foreground">{p.period}</span>
-                </div>
-                <ul className="mt-6 flex-1 space-y-3">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                      <span className="text-muted-foreground">{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link to="/register" className="mt-8">
-                  <Button
-                    variant={p.highlighted ? "default" : "outline"}
-                    className="w-full"
-                  >
-                    {p.cta}
-                  </Button>
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section> */}
-
       {/* ─── Testimonials ────────────────────────────────────────────── */}
       <section className="border-t bg-muted/30 py-20 sm:py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center mb-14">
             <Badge variant="outline" className="mb-4 text-xs">Testimoni</Badge>
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Dipercaya pemilik bengkel
+              Dipercaya pengurus masjid
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
@@ -568,11 +521,11 @@ export default function LandingPage() {
             <div className="pointer-events-none absolute -top-20 right-0 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-20 left-0 h-56 w-56 rounded-full bg-black/10 blur-3xl" />
             <h2 className="relative text-3xl font-bold tracking-tight sm:text-4xl">
-              Siap digitalkan bengkel Anda?
+              Wujudkan transparansi kas masjid
             </h2>
             <p className="relative mx-auto mt-4 max-w-xl text-primary-foreground/90">
-              Bergabunglah dengan ratusan bengkel yang sudah rapi, cepat, dan
-              akurat bersama TAMZ Garage. Gratis untuk memulai.
+              Bergabunglah dengan ratusan masjid & mushalla yang laporannya
+              rapi, terbuka, dan dipercaya jamaah. Gratis untuk memulai.
             </p>
             <div className="relative mt-8 flex flex-wrap justify-center gap-4">
               <Button
@@ -604,10 +557,10 @@ export default function LandingPage() {
           <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
             <div className="flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <Wrench className="h-4 w-4" />
+                <BookOpen className="h-4 w-4" />
               </span>
               <span className="text-sm font-semibold">
-                TAMZ<span className="text-primary">Garage</span>
+                Buku<span className="text-primary">Masjid</span>
               </span>
             </div>
             <nav className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground">
@@ -624,7 +577,7 @@ export default function LandingPage() {
             </div>
           </div>
           <p className="mt-8 text-center text-xs text-muted-foreground/70">
-            © {new Date().getFullYear()} TAMZ Garage. Semua hak dilindungi.
+            © {new Date().getFullYear()} Buku Masjid. Semua hak dilindungi.
           </p>
         </div>
       </footer>

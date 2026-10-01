@@ -18,9 +18,7 @@ type User struct {
 	Password       string         `gorm:"size:255;not null" json:"-"`
 	IsActive       bool           `gorm:"default:true" json:"is_active"`
 	OrganizationID uint           `gorm:"index;default:0" json:"organization_id"` // 0 = platform-level (superadmin)
-	BranchID       uint           `gorm:"index;default:0" json:"branch_id"`       // 0 = all branches
-	DailyWage      float64        `gorm:"default:0" json:"daily_wage"`            // gaji pokok harian
-	DailyAllowance float64        `gorm:"default:0" json:"daily_allowance"`       // tambahan/tunjangan harian
+	BranchID       uint           `gorm:"index;default:0" json:"branch_id"`       // 0 = all books/branches
 	Roles          []Role         `gorm:"many2many:user_roles;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"roles"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`

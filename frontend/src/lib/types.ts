@@ -1,6 +1,5 @@
-// Shared TypeScript types mirroring the backend models.User / Role /
-// Permission shapes. Kept hand-maintained (no zod/codegen) to match
-// the master template's portable, zero-bundler-magic philosophy.
+// Shared TypeScript types for the Buku Masjid frontend. Hand-maintained
+// (no zod/codegen) to match the master template's portable philosophy.
 
 export interface Permission {
   id: number
@@ -23,8 +22,6 @@ export interface User {
   name: string
   email: string
   is_active: boolean
-  daily_wage: number
-  daily_allowance: number
   roles: Role[]
   created_at: string
   updated_at: string
@@ -51,19 +48,16 @@ export interface PermissionGroup {
 
 export const PERMISSION_GROUPS: PermissionGroup[] = [
   { label: "Dashboard", prefix: "dashboard" },
+  { label: "Buku Kas", prefix: "books" },
+  { label: "Kategori", prefix: "categories" },
+  { label: "Transaksi", prefix: "transactions" },
+  { label: "Laporan", prefix: "reports" },
+  { label: "Settings", prefix: "settings" },
   { label: "Users", prefix: "users" },
   { label: "Roles & Permissions", prefix: "roles" },
-  { label: "Customers", prefix: "customers" },
-  { label: "Vehicles", prefix: "vehicles" },
-  { label: "Work Orders", prefix: "workorders" },
-  { label: "Spareparts & Stock", prefix: "spareparts" },
-  { label: "Invoices", prefix: "invoices" },
-  { label: "Reports", prefix: "reports" },
-  { label: "Analytics", prefix: "analytics" },
-  { label: "Settings", prefix: "settings" },
 ]
 
-// ─── Workshop domain types (TAMZ Garage) ───────────────────────────────────
+// ─── Buku Masjid domain types ───────────────────────────────────────────────
 
 export interface Organization {
   id: number
@@ -75,284 +69,173 @@ export interface Organization {
   updated_at: string
 }
 
-export interface Customer {
+export interface Book {
   id: number
   name: string
-  phone: string
-  email: string
-  address: string
-  notes: string
-  vehicles?: Vehicle[]
+  description: string
+  is_active: boolean
   created_at: string
   updated_at: string
 }
 
-export interface Vehicle {
+export interface Category {
   id: number
-  customer_id: number
-  brand: string
-  model: string
-  year: number
-  plate: string
-  vin: string
-  type: string
-  color: string
-  last_km: number
-  customer?: Customer
-  created_at: string
-  updated_at: string
-}
-
-export interface Sparepart {
-  id: number
-  sku: string
+  book_id: number
   name: string
-  category: string
-  brand: string
-  unit: string
-  buy_price: number
-  sell_price: number
-  stock_qty: number
-  reorder_point: number
-  image_url: string
+  group: "pendapatan" | "pengeluaran"
+  description: string
+  book?: Book
   created_at: string
   updated_at: string
 }
 
-export interface StockTransaction {
+export interface Transaction {
   id: number
-  sparepart_id: number
-  type: string
-  qty: number
-  unit_price: number
-  ref_type: string
-  ref_id: number
-  note: string
-  created_by: number
-  created_at: string
-}
-
-export interface WorkOrderItem {
-  id: number
-  work_order_id: number
-  name: string
-  qty: number
-  unit_price: number
-  line_total: number
-  est_hours: number
-  is_approved: boolean
-  created_at: string
-}
-
-export interface WorkOrderPart {
-  id: number
-  work_order_id: number
-  sparepart_id: number
-  qty: number
-  unit_price: number
-  line_total: number
-  stock_transaction_id: number
-  is_approved: boolean
-  created_by: number
-  sparepart?: Sparepart
-  created_at: string
-}
-
-export interface WorkOrder {
-  id: number
-  wo_number: string
-  customer_id: number
-  vehicle_id: number
-  mechanic_id: number
-  status: string
-  service_type: string
-  complaint: string
-  priority: string
-  estimate_total: number
-  actual_total: number
-  started_at: string | null
-  finished_at: string | null
-  completed_at: string | null
-  created_by: number
-  customer?: Customer
-  vehicle?: Vehicle
-  mechanic?: User
-  items?: WorkOrderItem[]
-  parts?: WorkOrderPart[]
-  invoice?: Invoice | null
-  created_at: string
-  updated_at: string
-}
-
-export interface Payment {
-  id: number
-  invoice_id: number
+  book_id: number
+  category_id: number
+  date: string // YYYY-MM-DD
+  type: "pemasukan" | "pengeluaran"
   amount: number
-  received: number
-  change: number
-  method: string
-  paid_at: string
-  created_by: number
-  created_at: string
-}
-
-export interface Invoice {
-  id: number
-  work_order_id: number
-  invoice_no: string
-  subtotal: number
-  discount: number
-  tax: number
-  total: number
-  status: string
-  issued_at: string
-  paid_at: string | null
-  work_order?: WorkOrder
-  payments?: Payment[]
+  description: string
+  partner_name: string
+  ref_no: string
+  book?: Book
+  category?: Category
+  creator?: { id: number; name: string; email: string }
   created_at: string
   updated_at: string
 }
 
-export interface DashboardSummary {
-  today_revenue: number
-  today_work_orders: number
-  active_work_orders: number
-  waiting_work_orders: number
-  low_stock_count: number
-  total_customers: number
-  unpaid_invoice_count: number
-  unpaid_invoice_total: number
-  queue: QueueEntry[]
-  low_stock: LowStockEntry[]
-}
+// ─── Jadwal Pengajian & Khatib (Lecturing) ──────────────────────────────
 
-export interface QueueEntry {
+export type LecturingAudience = "friday" | "public" | "muslimah" | "tarawih"
+
+export interface Lecturing {
   id: number
-  wo_number: string
-  status: string
-  priority: string
-  customer: string
-  plate: string
-  mechanic: string
-  total: number
+  audience: LecturingAudience
+  date: string // YYYY-MM-DD
+  start_time: string // HH:MM, boleh kosong
+  end_time: string // HH:MM, kosong = s/d selesai
+  time_text: string // label bebas, mis. "Ba'da Maghrib"
+  lecturer_name: string
+  imam_name: string
+  muadzin_name: string
+  title: string
+  book_title: string
+  book_writer: string
+  video_link: string
+  audio_link: string
+  description: string
+  creator?: { id: number; name: string; email: string }
   created_at: string
+  updated_at: string
 }
 
-export interface LowStockEntry {
-  id: number
-  sku: string
-  name: string
-  stock_qty: number
-  reorder_point: number
-  unit: string
+export const AUDIENCE_LABELS: Record<LecturingAudience, string> = {
+  friday: "Khatib Jumat",
+  public: "Pengajian Umum",
+  muslimah: "Pengajian Muslimah",
+  tarawih: "Tarawih",
 }
 
-// ─── Absensi (PRD-ABSENSI) ───────────────────────────────────────────────────
-
-export interface Shift {
-  id: number
-  name: string
-  branch_id: number
-  start_time: string
-  end_time: string
-  late_tolerance_minutes: number
-  allow_overtime: boolean
-  is_default: boolean
-  created_at: string
-}
-
-export interface UserShiftAssignment {
-  id: number
-  user_id: number
-  shift_id: number
-  branch_id: number
-  start_date: string
-  end_date: string
-  shift?: Shift
-  user?: User
-}
-
-export interface AttendanceDay {
+export interface MasjidSettings {
   id: number
   organization_id: number
-  branch_id: number
-  user_id: number
-  shift_id: number
-  date: string
-  status: string
-  check_in_at: string | null
-  check_out_at: string | null
-  late_minutes: number
-  work_duration_minutes: number
-  check_in_method: string
+  slug: string
+  name: string
+  address: string
+  city_name: string
   latitude: number
   longitude: number
-  note: string
-  shift?: Shift
-  user?: User
-}
-
-export interface LeaveRequest {
-  id: number
-  organization_id: number
-  branch_id: number
-  user_id: number
-  type: string
-  start_date: string
-  end_date: string
-  reason: string
-  attachment_url: string
-  status: string
-  approved_by: number
-  decided_at: string | null
-  user?: User
+  phone: string
+  email: string
+  currency_code: string
+  report_footer: string
+  updated_by: number
   created_at: string
+  updated_at: string
 }
 
-export const ATTENDANCE_STATUS_LABELS: Record<string, string> = {
-  hadir: "Hadir",
-  terlambat: "Terlambat",
-  izin: "Izin",
-  sakit: "Sakit",
-  cuti: "Cuti",
-  tanpa_keterangan: "Tanpa Keterangan",
-  libur: "Libur",
-  belum_absen: "Belum Absen",
+// ─── Public Display types ───────────────────────────────────────────────────
+
+export interface PublicDisplayFinance {
+  month: string
+  income: number
+  expense: number
+  net: number
+  start_cash: number
+  current_cash: number
 }
 
-export const LEAVE_TYPE_LABELS: Record<string, string> = {
-  izin: "Izin",
-  sakit: "Sakit",
-  cuti: "Cuti",
-  tanpa_keterangan: "Tanpa Keterangan",
+export interface PublicDisplayData {
+  masjid: MasjidSettings
+  finance: PublicDisplayFinance
+  lecturings: Lecturing[]
+  recent_transactions: Transaction[]
+  books: Book[]
+  server_time: string
 }
 
-export const WO_STATUSES = [
-  "draft",
-  "menunggu",
-  "dikerjakan",
-  "menunggu_approval",
-  "selesai",
-  "diambil",
-  "batal",
-] as const
+// ─── Report types ────────────────────────────────────────────────────────────
 
-export const WO_STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  menunggu: "Menunggu",
-  dikerjakan: "Dikerjakan",
-  menunggu_approval: "Menunggu Persetujuan",
-  selesai: "Selesai",
-  diambil: "Diambil",
-  batal: "Batal",
+export interface ReportTotals {
+  income: number
+  expense: number
+  net: number
+  start_cash: number
+  end_cash: number
 }
 
-export const WO_PRIORITIES = ["normal", "cepat", "darurat"] as const
+export interface LedgerEntry {
+  id: number
+  date: string
+  description: string
+  category: string
+  partner_name: string
+  ref_no: string
+  income: number
+  expense: number
+}
 
-export const WO_PRIORITY_LABELS: Record<string, string> = {
-  normal: "Normal",
-  cepat: "Cepat",
-  darurat: "Darurat",
+export interface MonthlyReport {
+  month: string // YYYY-MM
+  book_id: number
+  totals: ReportTotals
+  rows: LedgerEntry[]
+}
+
+export interface CategoryReportRow {
+  id: number
+  name: string
+  group: string
+  income: number
+  expense: number
+  count: number
+}
+
+export interface CategoryReportResponse {
+  totals: ReportTotals
+  rows: CategoryReportRow[]
+}
+
+export interface WeekEntry {
+  start: string
+  end: string
+  income: number
+  expense: number
+  net: number
+}
+
+export interface WeeklyReport {
+  from: string
+  to: string
+  weeks: WeekEntry[]
+  totals: ReportTotals
+}
+
+export const TYPE_LABELS: Record<string, string> = {
+  pemasukan: "Pemasukan",
+  pengeluaran: "Pengeluaran",
 }
 
 export function formatRupiah(value: number): string {
@@ -370,4 +253,18 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat("id-ID", {
     maximumFractionDigits: 2,
   }).format(value || 0)
+}
+
+/** Today's date as YYYY-MM-DD (local timezone). */
+export function todayISO(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Current month as YYYY-MM (local timezone). */
+export function currentMonth(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
 }

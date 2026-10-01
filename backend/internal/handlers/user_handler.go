@@ -32,6 +32,29 @@ func (h *UserHandler) ListUsers(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"users": users})
 }
 
+// CreateUser handles POST /api/users — creates an account INSIDE the
+// calling admin's organization (NOT a new tenant like public register).
+func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
+	var input service.CreateUserInput
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+	orgID, _ := middleware.ActorOrgID(c)
+	branchID, _ := middleware.ActorBranchID(c)
+	user, err := h.userService.CreateUser(&input, orgID, branchID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrEmailTaken):
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
+		default:
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+	}
+	return c.Status(fiber.StatusCreated).JSON(user)
+}
+
 // GetUser handles GET /api/users/:id.
 func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 	id, err := strconv.ParseUint(c.Params("id"), 10, 64)

@@ -6,16 +6,15 @@ import {
   Users,
   Settings,
   LogOut,
-  Wrench,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
-  BarChart3,
-  Shield,
-  Car,
-  ClipboardList,
-  Package,
+  Tags,
   Receipt,
-  CalendarCheck,
+  FileBarChart,
+  CalendarDays,
+  Moon,
+  Tv,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
@@ -29,16 +28,16 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
-  { icon: Car, label: "Pelanggan & Kendaraan", href: "/admin/customers", permission: "customers:read" },
-  { icon: ClipboardList, label: "Work Order", href: "/admin/work-orders", permission: "workorders:read" },
-  { icon: Package, label: "Sparepart & Stok", href: "/admin/spareparts", permission: "spareparts:read" },
-  { icon: Receipt, label: "Invoice", href: "/admin/invoices", permission: "invoices:read" },
-  { icon: CalendarCheck, label: "Absensi", href: "/admin/attendance", permission: "attendance:read" },
+  { icon: BookOpen, label: "Buku Kas", href: "/admin/books", permission: "books:read" },
+  { icon: Tags, label: "Kategori", href: "/admin/categories", permission: "categories:read" },
+  { icon: Receipt, label: "Transaksi", href: "/admin/transactions", permission: "transactions:read" },
+  { icon: FileBarChart, label: "Laporan", href: "/admin/reports", permission: "reports:read" },
+  { icon: CalendarDays, label: "Jadwal Pengajian", href: "/admin/lecturings", permission: "lecturings:read" },
+  { icon: Tv, label: "Layar TV (Display)", href: "/display" },
   // Access-control surface: visible to anyone with at least user listing
   // rights (admins + delegated managers alike).
   { icon: Users, label: "Users & Roles", href: "/admin/users", permission: "users:read" },
-  { icon: BarChart3, label: "Analytics", href: "/admin/analytics", permission: "analytics:read" },
-  { icon: Shield, label: "Security", href: "/admin/security" },
+  { icon: Moon, label: "Security", href: "/admin/security" },
   { icon: Settings, label: "Settings", href: "/admin/settings", permission: "settings:read" },
 ]
 
@@ -64,18 +63,22 @@ export default function AdminSidebar() {
     >
       {/* Logo */}
       <div className="flex h-16 items-center border-b px-4">
-<Link
-            to="/"
-            className={cn(
-              "flex items-center gap-2 font-bold",
-              collapsed ? "justify-center" : ""
-            )}
-          >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Wrench className="h-3.5 w-3.5" />
+        <Link
+          to="/"
+          className={cn(
+            "flex items-center gap-2 font-bold",
+            collapsed ? "justify-center" : ""
+          )}
+        >
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <BookOpen className="h-3.5 w-3.5" />
+          </span>
+          {!collapsed && (
+            <span className="text-lg">
+              Buku<span className="text-primary">Masjid</span>
             </span>
-            {!collapsed && <span className="text-lg">TAMZ<span className="text-primary">Garage</span></span>}
-          </Link>
+          )}
+        </Link>
       </div>
 
       {/* Navigation */}

@@ -12,7 +12,7 @@ import (
 //
 // Auth paths (login / register / me) look users up globally by
 // email/id. Admin management paths are scoped to an organization so an
-// admin can only see/manage users inside their own bengkel; orgID=0
+// admin can only see/manage users inside their own masjid; orgID=0
 // (superadmin) sees every user.
 type UserRepository struct {
 	db *gorm.DB
