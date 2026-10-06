@@ -238,6 +238,12 @@ export const TYPE_LABELS: Record<string, string> = {
   pengeluaran: "Pengeluaran",
 }
 
+/** Nomor nota kwitansi: pakai no. bukti manual (ref_no) jika terisi,
+ *  kalau kosong fallback ke ID transaksi dalam 5 digit (mis. "00042"). */
+export function nomorNota(tx: { id: number; ref_no?: string }): string {
+  return tx.ref_no?.trim() || String(tx.id).padStart(5, "0")
+}
+
 export function formatRupiah(value: number): string {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",

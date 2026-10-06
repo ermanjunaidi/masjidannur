@@ -16,10 +16,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Loader2, RefreshCw, TrendingUp, TrendingDown, Wallet } from "lucide-react"
-import { ApiError, booksApi, reportsApi } from "@/lib/api"
-import type { Book, MonthlyReport, CategoryReportResponse, WeeklyReport } from "@/lib/types"
+import { Loader2, MessageCircle, RefreshCw, TrendingUp, TrendingDown, Wallet } from "lucide-react"
+import { ApiError, booksApi, masjidSettingsApi, reportsApi } from "@/lib/api"
+import type { Book, MasjidSettings, MonthlyReport, CategoryReportResponse, WeeklyReport } from "@/lib/types"
 import { formatRupiah, currentMonth } from "@/lib/types"
+import { buildMonthlyNota, buildCategoryNota, buildWeeklyNota, shareWhatsApp } from "@/lib/nota"
 
 type Tab = "monthly" | "category" | "weekly"
 
@@ -42,6 +43,7 @@ export default function ReportsPage() {
   const [weekTo, setWeekTo] = useState(today())
   const [weekly, setWeekly] = useState<WeeklyReport | null>(null)
 
+  const [settings, setSettings] = useState<MasjidSettings | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,6 +53,30 @@ export default function ReportsPage() {
       .then((r) => setBooks(r.books ?? []))
       .catch(() => {})
   }, [])
+
+  // Profil masjid untuk kop & footer nota WhatsApp.
+  useEffect(() => {
+    masjidSettingsApi
+      .get()
+      .then(setSettings)
+      .catch(() => {})
+  }, [])
+
+  const bookName =
+    bookFilter === "all" ? undefined : books.find((b) => b.id === bookFilter)?.name
+
+  const notaContext = { masjid: settings, bookName }
+
+  const shareMonthly = () => {
+    if (monthly) shareWhatsApp(buildMonthlyNota({ ...notaContext, report: monthly }))
+  }
+  const shareCategory = () => {
+    if (catReport)
+      shareWhatsApp(buildCategoryNota({ ...notaContext, report: catReport, from, to }))
+  }
+  const shareWeekly = () => {
+    if (weekly) shareWhatsApp(buildWeeklyNota({ ...notaContext, report: weekly }))
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -139,7 +165,18 @@ export default function ReportsPage() {
       {tab === "monthly" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Laporan Kas Bulanan</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">Laporan Kas Bulanan</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={shareMonthly}
+                disabled={!monthly || monthly.rows.length === 0}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Bagikan via WA
+              </Button>
+            </div>
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="rep-month">Bulan</Label>
@@ -201,7 +238,18 @@ export default function ReportsPage() {
       {tab === "category" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Laporan Kas per Kategori</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">Laporan Kas per Kategori</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={shareCategory}
+                disabled={!catReport || catReport.rows.length === 0}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Bagikan via WA
+              </Button>
+            </div>
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="rep-from">Dari</Label>
@@ -263,7 +311,18 @@ export default function ReportsPage() {
       {tab === "weekly" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Laporan Kas Mingguan</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">Laporan Kas Mingguan</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={shareWeekly}
+                disabled={!weekly || weekly.weeks.length === 0}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Bagikan via WA
+              </Button>
+            </div>
             <div className="flex flex-wrap items-end gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="rep-wfrom">Dari</Label>

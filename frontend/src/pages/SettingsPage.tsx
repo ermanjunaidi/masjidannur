@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Card,
   CardContent,
@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2, Save, Building2, Tv, ExternalLink, Copy, Check } from "lucide-react"
-import { ApiError, masjidSettingsApi } from "@/lib/api"
-import type { MasjidSettings } from "@/lib/types"
+import { ApiError, masjidSettingsApi, rolesApi, permissionsApi } from "@/lib/api"
+import type { MasjidSettings, Role, Permission } from "@/lib/types"
 import { useAuth } from "@/context/AuthContext"
+import { RolesTable } from "@/components/RolesTable"
 
 const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
   Jakarta: { lat: -6.2088, lng: 106.8456 },
@@ -51,6 +52,38 @@ export default function SettingsPage() {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  // Roles management (embedded in admin settings per request)
+  const canViewRoles = hasPermission("roles:read")
+  const canWriteRoles = hasPermission("roles:write")
+  const [roles, setRoles] = useState<Role[]>([])
+  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [roleErr, setRoleErr] = useState<string | null>(null)
+  const [roleLoading, setRoleLoading] = useState(canViewRoles)
+  const refreshRoles = useCallback(async () => {
+    if (!canViewRoles) {
+      setRoles([])
+      setPermissions([])
+      setRoleLoading(false)
+      return
+    }
+    setRoleLoading(true)
+    setRoleErr(null)
+    try {
+      const [r, p] = await Promise.all([rolesApi.list(), permissionsApi.list()])
+      setRoles(r.roles ?? [])
+      setPermissions(p.permissions ?? [])
+    } catch (e) {
+      setRoleErr(
+        e instanceof ApiError ? `${e.message} (HTTP ${e.status})` : "Gagal memuat roles",
+      )
+    } finally {
+      setRoleLoading(false)
+    }
+  }, [canViewRoles])
+  useEffect(() => {
+    void refreshRoles()
+  }, [refreshRoles])
 
   useEffect(() => {
     let cancelled = false
@@ -400,6 +433,38 @@ export default function SettingsPage() {
               </div>
             )}
           </form>
+
+          {/* ─── Roles & Permissions (embedded admin settings section) ─── */}
+          {canViewRoles && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Role &amp; Hak Akses</CardTitle>
+                <CardDescription>
+                  Role mengelompokkan permission. Pengguna menerima gabungan semua
+                  permission dari setiap role yang ditugaskan kepadanya.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {roleErr && (
+                  <div className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {roleErr}
+                  </div>
+                )}
+                <RolesTable
+                  roles={roles}
+                  permissions={permissions}
+                  loading={roleLoading}
+                  canWrite={canWriteRoles}
+                  onChanged={() => void refreshRoles()}
+                />
+                {!canWriteRoles && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Anda dapat melihat role tetapi tidak dapat membuat atau mengubahnya.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>

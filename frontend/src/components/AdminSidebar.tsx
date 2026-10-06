@@ -46,6 +46,12 @@ export default function AdminSidebar() {
   const { logout, user, hasPermission } = useAuth()
   const [collapsed, setCollapsed] = useState(false)
 
+  // A "deselect-all" role (zero permissions) grants nothing, so it must not
+  // surface in the sidebar — neither as a label nor in the permission count.
+  const effectiveRoles = (user?.roles ?? []).filter(
+    (r) => (r.permissions?.length ?? 0) > 0,
+  )
+
   const handleLogout = () => {
     logout()
     // Full page navigation: bypasses React Router entirely so the
@@ -114,13 +120,16 @@ export default function AdminSidebar() {
         {!collapsed && user && (
           <div className="px-3 py-2">
             <p className="text-sm font-medium truncate">{user.name}</p>
+            {/* Roles whose permissions were all deselected (empty) carry no
+                access — hide them here so the sidebar only lists effective
+                roles. */}
             <p className="text-xs text-muted-foreground truncate">
-              {!user.roles || user.roles.length === 0
+              {effectiveRoles.length === 0
                 ? "no role"
-                : user.roles.map((r) => r.name).join(", ")}
+                : effectiveRoles.map((r) => r.name).join(", ")}
             </p>
             <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-              {(user.roles ?? []).reduce((sum, r) => sum + (r.permissions?.length ?? 0), 0)} permissions
+              {effectiveRoles.reduce((sum, r) => sum + (r.permissions?.length ?? 0), 0)} permissions
             </p>
           </div>
         )}

@@ -21,6 +21,8 @@ import {
   Loader2,
   ArrowDownCircle,
   ArrowUpCircle,
+  Image as ImageIcon,
+  MessageCircle,
   Pencil,
   Trash2,
   Search,
@@ -28,9 +30,11 @@ import {
   TrendingUp,
   TrendingDown,
 } from "lucide-react"
-import { ApiError, booksApi, categoriesApi, transactionsApi } from "@/lib/api"
-import type { Book, Category, Transaction } from "@/lib/types"
+import { KwitansiDialog } from "@/components/KwitansiDialog"
+import { ApiError, booksApi, categoriesApi, masjidSettingsApi, transactionsApi } from "@/lib/api"
+import type { Book, Category, MasjidSettings, Transaction } from "@/lib/types"
 import { formatRupiah, todayISO } from "@/lib/types"
+import { buildTransactionNota, shareWhatsApp } from "@/lib/nota"
 
 export default function TransactionsPage() {
   const [books, setBooks] = useState<Book[]>([])
@@ -50,6 +54,16 @@ export default function TransactionsPage() {
   const [createType, setCreateType] = useState<"pemasukan" | "pengeluaran">("pemasukan")
   const [editTarget, setEditTarget] = useState<Transaction | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null)
+  // Profil masjid untuk kop & footer nota/kwitansi WhatsApp.
+  const [settings, setSettings] = useState<MasjidSettings | null>(null)
+  const [kwitansiTarget, setKwitansiTarget] = useState<Transaction | null>(null)
+
+  useEffect(() => {
+    masjidSettingsApi
+      .get()
+      .then(setSettings)
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -303,6 +317,23 @@ export default function TransactionsPage() {
                       <RowActions
                         actions={[
                           {
+                            label: "Kwitansi (Gambar)",
+                            icon: <ImageIcon className="h-4 w-4" />,
+                            onClick: () => setKwitansiTarget(t),
+                          },
+                          {
+                            label: "Nota (Teks)",
+                            icon: <MessageCircle className="h-4 w-4" />,
+                            onClick: () =>
+                              shareWhatsApp(
+                                buildTransactionNota({
+                                  masjid: settings,
+                                  bookName: books.find((b) => b.id === t.book_id)?.name,
+                                  tx: t,
+                                }),
+                              ),
+                          },
+                          {
                             label: "Edit",
                             icon: <Pencil className="h-4 w-4" />,
                             onClick: () => setEditTarget(t),
@@ -352,6 +383,18 @@ export default function TransactionsPage() {
           setEditTarget(null)
           void load()
         }}
+      />
+
+      <KwitansiDialog
+        open={!!kwitansiTarget}
+        tx={kwitansiTarget}
+        masjid={settings}
+        bookName={
+          kwitansiTarget
+            ? books.find((b) => b.id === kwitansiTarget.book_id)?.name
+            : undefined
+        }
+        onClose={() => setKwitansiTarget(null)}
       />
 
       <ConfirmDialog
