@@ -433,38 +433,6 @@ export default function SettingsPage() {
               </div>
             )}
           </form>
-
-          {/* ─── Roles & Permissions (embedded admin settings section) ─── */}
-          {canViewRoles && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Role &amp; Hak Akses</CardTitle>
-                <CardDescription>
-                  Role mengelompokkan permission. Pengguna menerima gabungan semua
-                  permission dari setiap role yang ditugaskan kepadanya.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {roleErr && (
-                  <div className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    {roleErr}
-                  </div>
-                )}
-                <RolesTable
-                  roles={roles}
-                  permissions={permissions}
-                  loading={roleLoading}
-                  canWrite={canWriteRoles}
-                  onChanged={() => void refreshRoles()}
-                />
-                {!canWriteRoles && (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    Anda dapat melihat role tetapi tidak dapat membuat atau mengubahnya.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </div>
       )}
     </div>
