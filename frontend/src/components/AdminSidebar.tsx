@@ -81,7 +81,7 @@ export default function AdminSidebar() {
           </span>
           {!collapsed && (
             <span className="text-lg">
-              Buku<span className="text-primary">Masjid</span>
+              Masjid<span className="text-primary">Hub</span>
             </span>
           )}
         </Link>

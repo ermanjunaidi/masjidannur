@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
           <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          Buku<span className="text-primary">Masjid</span>
+          Masjid<span className="text-primary">Hub</span>
         </span>
       </Link>
 

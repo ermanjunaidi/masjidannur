@@ -166,7 +166,7 @@ export default function LandingPage() {
               <BookOpen className="h-4.5 w-4.5" />
             </span>
             <span>
-              Buku<span className="text-primary">Masjid</span>
+              Masjid<span className="text-primary">Hub</span>
             </span>
           </Link>
 
@@ -318,7 +318,7 @@ export default function LandingPage() {
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 <span className="ml-3 rounded bg-muted px-3 py-0.5 text-[10px] text-muted-foreground">
-                  bukumasjid.app/dashboard
+                  masjidhub.app/dashboard
                 </span>
               </div>
               <div className="grid gap-4 p-4 sm:grid-cols-4">
@@ -566,7 +566,7 @@ export default function LandingPage() {
                 <BookOpen className="h-4 w-4" />
               </span>
               <span className="text-sm font-semibold">
-                Buku<span className="text-primary">Masjid</span>
+                Masjid<span className="text-primary">Hub</span>
               </span>
             </div>
             <nav className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground">
@@ -583,7 +583,7 @@ export default function LandingPage() {
             </div>
           </div>
           <p className="mt-8 text-center text-xs text-muted-foreground/70">
-            © {new Date().getFullYear()} Buku Masjid. Semua hak dilindungi.
+            © {new Date().getFullYear()} MasjidHub. Semua hak dilindungi.
           </p>
         </div>
       </footer>

@@ -244,7 +244,7 @@ func (s *AuthService) ForgotPassword(email string) error {
 
 	link := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(s.frontendURL, "/"), token)
 	if s.smtp.Host != "" {
-		if err := s.sendEmail(user.Email, "Reset Password — Buku Masjid", fmt.Sprintf(
+		if err := s.sendEmail(user.Email, "Reset Password — MasjidHub", fmt.Sprintf(
 			"Halo %s,\n\nKlik link berikut untuk mereset password Anda (berlaku 1 jam):\n%s\n\nJika tidak meminta reset, abaikan email ini.", user.Name, link,
 		)); err != nil {
 			return errors.New("failed to send reset email")

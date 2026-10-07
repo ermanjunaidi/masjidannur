@@ -57,13 +57,13 @@ export default function RegisterPage() {
           <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          Buku<span className="text-primary">Masjid</span>
+          Masjid<span className="text-primary">Hub</span>
         </span>
       </Link>
 
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Buat Akun Buku Masjid</CardTitle>
+          <CardTitle>Buat Akun MasjidHub</CardTitle>
           <CardDescription>
             Daftar gratis — Anda otomatis menjadi <b>Admin</b> masjid Anda.
           </CardDescription>

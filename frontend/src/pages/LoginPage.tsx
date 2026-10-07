@@ -63,13 +63,13 @@ export default function LoginPage() {
           <Moon className="h-4.5 w-4.5" />
         </span>
         <span>
-          Buku<span className="text-primary">Masjid</span>
+          Masjid<span className="text-primary">Hub</span>
         </span>
       </Link>
 
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Masuk ke Buku Masjid</CardTitle>
+          <CardTitle>Masuk ke MasjidHub</CardTitle>
           <CardDescription>Kelola keuangan masjid Anda dari mana saja</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
