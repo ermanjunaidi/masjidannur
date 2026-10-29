@@ -51,10 +51,12 @@ func (r *UserRepository) CreateWithRoles(user *models.User, roleIDs []uint) erro
 	})
 }
 
-// FindByEmail looks up a user by email (global — used by auth flows).
+// FindByEmail looks up a user by email, case-insensitively (global — used
+// by auth flows). Google returns lowercase emails while admins may type
+// "Budi@Mail.com"; both must resolve to the same account.
 func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	var user models.User
-	err := r.db.Preload("Roles.Permissions").Where("email = ?", email).First(&user).Error
+	err := r.db.Preload("Roles.Permissions").Where("LOWER(email) = LOWER(?)", email).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -62,6 +64,38 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// FindByEmailUnscoped is FindByEmail including soft-deleted users, whose
+// email still occupies the unique index.
+func (r *UserRepository) FindByEmailUnscoped(email string) (*models.User, error) {
+	var user models.User
+	err := r.db.Unscoped().Where("LOWER(email) = LOWER(?)", email).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// FindByGoogleID looks up the user linked to a Google account "sub".
+func (r *UserRepository) FindByGoogleID(googleID string) (*models.User, error) {
+	var user models.User
+	err := r.db.Preload("Roles.Permissions").Where("google_id = ?", googleID).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// LinkGoogle stores the Google "sub" on an existing user.
+func (r *UserRepository) LinkGoogle(userID uint, googleID string) error {
+	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("google_id", googleID).Error
 }
 
 // FindByID looks up a user by primary key with roles loaded (global — auth).
@@ -122,7 +156,8 @@ func (r *UserRepository) UpdateWithRoles(user *models.User, roleIDs []uint) erro
 // UpdatePassword updates only the password hash for a user (self-service
 // change-password). Used by the Security page.
 func (r *UserRepository) UpdatePassword(userID uint, hash string) error {
-	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("password", hash).Error
+	return r.db.Model(&models.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"password": hash, "no_password": false}).Error
 }
 
 // Delete soft-deletes a user by ID, scoped to an organization.

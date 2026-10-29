@@ -10,19 +10,25 @@ import (
 
 // Env holds all environment variables for the application.
 type Env struct {
-	DBHost         string
-	DBPort         string
-	DBUser         string
-	DBPassword     string
-	DBName         string
-	DBSSLMode      string
-	AppPort        string
-	AppEnv         string
-	JWTSecret      string
-	// Google OAuth2 (login via Google). Empty values disable the flow.
+	DBHost     string
+	DBPort     string
+	DBUser     string
+	DBPassword string
+	DBName     string
+	DBSSLMode  string
+	AppPort    string
+	AppEnv     string
+	JWTSecret  string
+	// Google OAuth2 (login/register via Google). CLIENT_ID + CLIENT_SECRET
+	// are enough; empty values disable the flow. GoogleRedirectURL is an
+	// optional override — by default it is derived per request as
+	// <frontend origin>/api/auth/google/callback.
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURL  string
+	// BaseDomain (BASE_DOMAIN) — frontend origins on this domain or its
+	// subdomains may receive the Google login redirect.
+	BaseDomain string
 	// SMTP for password-reset emails. Empty SMTP host falls back to logging
 	// the reset link to stdout (dev mode).
 	SMTPHost     string
@@ -79,25 +85,26 @@ func NewEnv() *Env {
 	}
 
 	env := &Env{
-		DBHost:         getEnv("DB_HOST", defaultDBHost),
-		DBPort:         getEnv("DB_PORT", "5432"),
-		DBUser:         getEnv("DB_USER", "postgres"),
-		DBPassword:     getEnv("DB_PASSWORD", "postgres"),
-		DBName:         getEnv("DB_NAME", "master_db"),
-		DBSSLMode:      getEnv("DB_SSLMODE", "disable"),
-		AppPort:        getEnv("APP_PORT", "3000"),
-		AppEnv:         appEnv,
-		JWTSecret:      getEnv("JWT_SECRET", "supersecret"),
-		GoogleClientID: getEnv("GOOGLE_CLIENT_ID", ""),
+		DBHost:             getEnv("DB_HOST", defaultDBHost),
+		DBPort:             getEnv("DB_PORT", "5432"),
+		DBUser:             getEnv("DB_USER", "postgres"),
+		DBPassword:         getEnv("DB_PASSWORD", "postgres"),
+		DBName:             getEnv("DB_NAME", "master_db"),
+		DBSSLMode:          getEnv("DB_SSLMODE", "disable"),
+		AppPort:            getEnv("APP_PORT", "3000"),
+		AppEnv:             appEnv,
+		JWTSecret:          getEnv("JWT_SECRET", "supersecret"),
+		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
 		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", ""),
-		SMTPHost:       getEnv("SMTP_HOST", ""),
-		SMTPPort:       getEnv("SMTP_PORT", "587"),
-		SMTPUser:       getEnv("SMTP_USER", ""),
-		SMTPPassword:   getEnv("SMTP_PASSWORD", ""),
-		SMTPFrom:       getEnv("SMTP_FROM", "no-reply@masjidannur.my.id"),
-		FrontendURL:    getEnv("FRONTEND_URL", "http://localhost:5178"),
-		AllowedOrigins: parseCSV(getEnv("ALLOWED_ORIGINS", "")),
+		SMTPHost:           getEnv("SMTP_HOST", ""),
+		SMTPPort:           getEnv("SMTP_PORT", "587"),
+		SMTPUser:           getEnv("SMTP_USER", ""),
+		SMTPPassword:       getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:           getEnv("SMTP_FROM", "no-reply@masjidannur.my.id"),
+		FrontendURL:        getEnv("FRONTEND_URL", getEnv("FRONTEND_ORIGIN", "http://localhost:5178")),
+		BaseDomain:         getEnv("BASE_DOMAIN", ""),
+		AllowedOrigins:     parseCSV(getEnv("ALLOWED_ORIGINS", "")),
 	}
 
 	fmt.Printf("[config] Loaded environment: APP_ENV=%s  DB_HOST=%s\n", env.AppEnv, env.DBHost)

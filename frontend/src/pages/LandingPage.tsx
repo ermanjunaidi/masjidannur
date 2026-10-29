@@ -25,7 +25,7 @@ import { authApi } from "@/lib/api"
 // melewati form di /register. Akun baru tetap otomatis dibuat di callback
 // backend dan pemiliknya langsung jadi Admin masjid.
 function startGoogleSignup() {
-  window.location.href = authApi.googleAuthUrl()
+  window.location.href = authApi.googleAuthUrl("register")
 }
 
 /** Logo Google untuk menandai tombol yang memakai akun Google. */

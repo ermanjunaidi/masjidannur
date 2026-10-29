@@ -166,7 +166,7 @@ export function ModalShell({
 
 // ─── UserModal ────────────────────────────────────────────────────────────────
 
-import { usersApi, ApiError } from "@/lib/api"
+import { usersApi, ApiError, type InviteResult } from "@/lib/api"
 import type { Role, User } from "@/lib/types"
 
 interface UserModalProps {
@@ -196,6 +196,9 @@ export function UserModal({
   const [isActive, setIsActive] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Set after create / resend when the invite link must be shared manually.
+  const [invite, setInvite] = useState<InviteResult | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // Reset form state every time the modal opens with a different target.
   useEffect(() => {
@@ -207,7 +210,32 @@ export function UserModal({
     setIsActive(initialUser?.is_active ?? true)
     setError(null)
     setSaving(false)
+    setInvite(null)
+    setNotice(null)
   }, [open, initialUser])
+
+  const errorText = (e: unknown, fallback: string) =>
+    e instanceof ApiError
+      ? `${e.message} (HTTP ${e.status})`
+      : e instanceof Error
+      ? e.message
+      : fallback
+
+  const handleResendInvite = async () => {
+    if (!initialUser) return
+    setError(null)
+    setNotice(null)
+    setSaving(true)
+    try {
+      const res = await usersApi.resendInvite(initialUser.id)
+      if (res.invite_link) setInvite(res)
+      else setNotice(`Undangan dikirim ulang ke ${initialUser.email}.`)
+    } catch (e) {
+      setError(errorText(e, "Gagal mengirim undangan"))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const toggleRole = (id: number) => {
     setSelectedRoleIDs((prev) =>
@@ -221,24 +249,24 @@ export function UserModal({
       setError("Name and email are required")
       return
     }
-    if (mode === "create" && !password) {
-      setError("Password is required for new users")
-      return
-    }
     setSaving(true)
     try {
       if (mode === "create") {
-        // Admin-side create endpoint: the new account joins the CURRENT
-        // admin's masjid organization. (The old flow reused the public
-        // register endpoint, which silently created a separate tenant and
-        // made the new user disappear from this masjid's user list.)
-        const created = await usersApi.create({
+        // The admin never sets the password: the backend emails an invite
+        // (set password, or sign in with Google using this email). An
+        // email that already has an account is rejected with 409 instead
+        // of creating a duplicate.
+        const res = await usersApi.create({
           name: name.trim(),
           email: email.trim(),
-          password,
           role_ids: selectedRoleIDs,
         })
-        onSaved(created)
+        if (res.invite_link) {
+          // Keep the modal open so the admin can copy the link.
+          setInvite(res)
+        } else {
+          onSaved(res.user)
+        }
       } else if (initialUser) {
         const payload: Parameters<typeof usersApi.update>[1] = {
           name: name.trim(),
@@ -253,16 +281,43 @@ export function UserModal({
         onSaved(updated)
       }
     } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? `${e.message} (HTTP ${e.status})`
-          : e instanceof Error
-          ? e.message
-          : "Save failed"
-      setError(msg)
+      setError(errorText(e, "Save failed"))
     } finally {
       setSaving(false)
     }
+  }
+
+  if (invite?.invite_link) {
+    const done = () => {
+      if (mode === "create") onSaved(invite.user)
+      else setInvite(null)
+    }
+    return (
+      <ModalShell
+        open={open}
+        onClose={done}
+        title="Bagikan link undangan"
+        description={`Email belum terkirim (SMTP belum dikonfigurasi). Kirim link ini ke ${invite.user.email}.`}
+        footer={<Button onClick={done}>Selesai</Button>}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="invite-link">Link undangan (berlaku 7 hari)</Label>
+          <div className="flex gap-2">
+            <Input id="invite-link" readOnly value={invite.invite_link} onFocus={(e) => e.target.select()} />
+            <Button
+              variant="outline"
+              onClick={() => void navigator.clipboard?.writeText(invite.invite_link ?? "")}
+            >
+              Salin
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            User membuat password lewat link ini, atau cukup pilih "Masuk dengan Google"
+            memakai email yang sama.
+          </p>
+        </div>
+      </ModalShell>
+    )
   }
 
   return (
@@ -272,7 +327,7 @@ export function UserModal({
       title={mode === "create" ? "Create user" : `Edit ${initialUser?.name ?? "user"}`}
       description={
         mode === "create"
-          ? "A new account will be created. The user can change their own password later."
+          ? "Undangan dikirim ke email user. User membuat password sendiri, atau masuk dengan Google memakai email yang sama."
           : "Leave the password blank to keep the existing password."
       }
       footer={
@@ -345,17 +400,31 @@ export function UserModal({
         </div>
       )}
 
-      {mode === "create" && (
-        <div className="space-y-2">
-          <Label htmlFor="user-password-create">Password</Label>
-          <Input
-            id="user-password-create"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="new-password"
-          />
+      {notice && (
+        <div className="rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">
+          {notice}
+        </div>
+      )}
+
+      {mode === "edit" && initialUser && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3 bg-muted/30 text-sm">
+          <span className="text-muted-foreground">Metode login:</span>
+          {initialUser.has_password && <span className="font-medium">Password</span>}
+          {initialUser.google_linked && <span className="font-medium">Google</span>}
+          {!initialUser.has_password && !initialUser.google_linked && (
+            <>
+              <span className="font-medium">Belum aktif (menunggu undangan)</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => void handleResendInvite()}
+                disabled={saving}
+              >
+                Kirim ulang undangan
+              </Button>
+            </>
+          )}
         </div>
       )}
 

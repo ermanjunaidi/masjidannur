@@ -10,6 +10,8 @@ import { authApi } from "@/lib/api"
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get("token") ?? ""
+  // invite=1: link from an admin invite (account not activated yet).
+  const isInvite = searchParams.get("invite") === "1"
 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -60,8 +62,12 @@ export default function ResetPasswordPage() {
 
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Reset Password</CardTitle>
-          <CardDescription>Buat password baru untuk akun Anda</CardDescription>
+          <CardTitle>{isInvite ? "Aktifkan Akun" : "Reset Password"}</CardTitle>
+          <CardDescription>
+            {isInvite
+              ? "Buat password untuk akun Anda"
+              : "Buat password baru untuk akun Anda"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {done ? (
@@ -70,7 +76,9 @@ export default function ResetPasswordPage() {
                 <CheckCircle2 className="h-6 w-6" />
               </div>
               <p className="text-sm text-muted-foreground">
-                Password berhasil direset. Silakan login dengan password baru.
+                {isInvite
+                  ? "Akun aktif. Silakan login dengan password Anda atau dengan Google."
+                  : "Password berhasil direset. Silakan login dengan password baru."}
               </p>
               <Link to="/login" className="inline-block w-full">
                 <Button className="w-full">Ke Halaman Login</Button>
@@ -134,6 +142,15 @@ export default function ResetPasswordPage() {
                   "Simpan Password Baru"
                 )}
               </Button>
+              {isInvite && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Lebih suka tanpa password?{" "}
+                  <Link to="/login" className="font-medium text-primary hover:underline">
+                    Masuk dengan Google
+                  </Link>{" "}
+                  memakai email yang diundang.
+                </p>
+              )}
             </form>
           )}
         </CardContent>

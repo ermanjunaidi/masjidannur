@@ -137,7 +137,26 @@ export const authApi = {
       method: "POST",
       body: JSON.stringify({ token, new_password }),
     }),
-  googleAuthUrl: () => `/api/auth/google`,
+  // Origin dikirim supaya backend bisa menurunkan redirect URI Google
+  // (<origin>/api/auth/google/callback) tanpa konfigurasi tambahan.
+  // mode: hanya "register" yang boleh membuat akun baru; keduanya bisa
+  // masuk ke akun yang sudah ada.
+  googleAuthUrl: (mode: "login" | "register") =>
+    `/api/auth/google?origin=${encodeURIComponent(window.location.origin)}&mode=${mode}`,
+  googleStatus: () => apiRequest<{ enabled: boolean }>("/api/auth/google/status"),
+}
+
+/**
+ * Tampilkan tombol Google hanya kalau backend punya GOOGLE_CLIENT_ID/SECRET.
+ * Hasil di-cache per page load supaya Login/Register tidak fetch berulang.
+ */
+let googleEnabledCache: Promise<boolean> | null = null
+export function fetchGoogleEnabled(): Promise<boolean> {
+  googleEnabledCache ??= authApi
+    .googleStatus()
+    .then((r) => r.enabled)
+    .catch(() => false)
+  return googleEnabledCache
 }
 
 // ─── Books (Buku Kas) ─────────────────────────────────────────────────────────
@@ -408,11 +427,20 @@ export interface UpdateUserPayload {
   role_ids?: number[]
 }
 
+// No password: the user sets one via the invite link or signs in with
+// Google using the same email.
 export interface CreateUserPayload {
   name: string
   email: string
-  password: string
   role_ids?: number[]
+}
+
+// invite_link is only returned when the email could not be sent (SMTP not
+// configured), so the admin can share it manually.
+export interface InviteResult {
+  user: User
+  invite_sent: boolean
+  invite_link?: string
 }
 
 export const usersApi = {
@@ -420,10 +448,12 @@ export const usersApi = {
   // Admin-side create: joins the CALLING admin's organization (unlike the
   // public /api/auth/register which spins up a brand-new tenant).
   create: (payload: CreateUserPayload) =>
-    apiRequest<User>("/api/users", {
+    apiRequest<InviteResult>("/api/users", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  resendInvite: (id: number) =>
+    apiRequest<InviteResult>(`/api/users/${id}/invite`, { method: "POST" }),
   get: (id: number) => apiRequest<User>(`/api/users/${id}`),
   update: (id: number, payload: UpdateUserPayload) =>
     apiRequest<User>(`/api/users/${id}`, {

@@ -168,7 +168,7 @@ func main() {
 		service.SMTPConfig{Host: env.SMTPHost, Port: env.SMTPPort, User: env.SMTPUser, Password: env.SMTPPassword, From: env.SMTPFrom},
 		env.FrontendURL,
 	)
-	userService := service.NewUserService(userRepo, roleRepo)
+	userService := service.NewUserService(userRepo, roleRepo, authService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo)
 	bookService := service.NewBookService(bookRepo)
 	categoryService := service.NewCategoryService(categoryRepo, bookRepo)
@@ -177,7 +177,16 @@ func main() {
 	lecturingService := service.NewLecturingService(lecturingRepo)
 
 	// ─── Handlers ─────────────────────────────────────────────────────────────
-	authHandler := handlers.NewAuthHandler(authService, userRepo, env.FrontendURL)
+	authHandler := handlers.NewAuthHandler(authService, userRepo, env.FrontendURL, env.AllowedOrigins, env.BaseDomain)
+	if authService.GoogleEnabled() {
+		redirect := authService.GoogleFixedRedirectURL()
+		if redirect == "" {
+			redirect = strings.TrimRight(env.FrontendURL, "/") + "/api/auth/google/callback"
+		}
+		log.Printf("[auth] Google login aktif. Daftarkan di Google Cloud Console → Authorized redirect URIs: %s (dan http://localhost:<VITE_PORT>/api/auth/google/callback untuk dev)", redirect)
+	} else {
+		log.Printf("[auth] Google login nonaktif (isi GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET untuk mengaktifkan).")
+	}
 	userHandler := handlers.NewUserHandler(userService)
 	roleHandler := handlers.NewRoleHandler(roleService, permissionRepo)
 	bookHandler := handlers.NewBookHandler(bookService)

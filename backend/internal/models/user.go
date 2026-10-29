@@ -11,11 +11,18 @@ import (
 // replaced by the M2M relation; existing rows are migrated by the
 // `migrateLegacyRoleField` helper invoked in main.go.
 type User struct {
-	ID             uint           `gorm:"primaryKey" json:"id"`
-	Name           string         `gorm:"size:255;not null" json:"name"`
-	Email          string         `gorm:"size:255;uniqueIndex;not null" json:"email"`
-	Phone          string         `gorm:"size:30;index" json:"phone"`
-	Password       string         `gorm:"size:255;not null" json:"-"`
+	ID       uint   `gorm:"primaryKey" json:"id"`
+	Name     string `gorm:"size:255;not null" json:"name"`
+	Email    string `gorm:"size:255;uniqueIndex;not null" json:"email"`
+	Phone    string `gorm:"size:30;index" json:"phone"`
+	Password string `gorm:"size:255;not null" json:"-"`
+	// NoPassword marks accounts whose Password is a random unusable hash
+	// (Google signups, admin invites not yet accepted). They set a real
+	// password only through an emailed link (invite / forgot password).
+	NoPassword bool `gorm:"default:false" json:"-"`
+	// GoogleID is the Google account "sub". Linked on the first Google
+	// login with a verified matching email; NULL = not linked.
+	GoogleID       *string        `gorm:"size:64;uniqueIndex" json:"-"`
 	IsActive       bool           `gorm:"default:true" json:"is_active"`
 	OrganizationID uint           `gorm:"index;default:0" json:"organization_id"` // 0 = platform-level (superadmin)
 	BranchID       uint           `gorm:"index;default:0" json:"branch_id"`       // 0 = all books/branches
@@ -23,6 +30,17 @@ type User struct {
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+
+	// Read-only flags for the admin UI, filled by AfterFind.
+	HasPassword  bool `gorm:"-" json:"has_password"`
+	GoogleLinked bool `gorm:"-" json:"google_linked"`
+}
+
+// AfterFind derives the UI flags without exposing the hash or Google ID.
+func (u *User) AfterFind(_ *gorm.DB) error {
+	u.HasPassword = !u.NoPassword
+	u.GoogleLinked = u.GoogleID != nil
+	return nil
 }
 
 // HasPermission returns true when this user has at least one role whose

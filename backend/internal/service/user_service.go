@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -17,11 +19,127 @@ import (
 type UserService struct {
 	userRepo *repository.UserRepository
 	roleRepo *repository.RoleRepository
+	inviter  Inviter
+}
+
+// Inviter delivers the "set your password" link to an admin-created user
+// (implemented by AuthService.SendInvite).
+type Inviter interface {
+	SendInvite(user *models.User) (link string, emailed bool, err error)
 }
 
 // NewUserService wires the dependencies.
-func NewUserService(userRepo *repository.UserRepository, roleRepo *repository.RoleRepository) *UserService {
-	return &UserService{userRepo: userRepo, roleRepo: roleRepo}
+func NewUserService(userRepo *repository.UserRepository, roleRepo *repository.RoleRepository, inviter Inviter) *UserService {
+	return &UserService{userRepo: userRepo, roleRepo: roleRepo, inviter: inviter}
+}
+
+// CreateUserInput is the payload accepted by POST /api/users. There is
+// deliberately no password: the user sets one through the invite link or
+// signs in with Google, so the admin never knows it.
+type CreateUserInput struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	RoleIDs []uint `json:"role_ids"`
+}
+
+// InviteResult tells the admin how the invite was delivered. InviteLink
+// is only set when it could not be emailed, so the admin can share it.
+type InviteResult struct {
+	User       *models.User `json:"user"`
+	InviteSent bool         `json:"invite_sent"`
+	InviteLink string       `json:"invite_link,omitempty"`
+}
+
+// CreateUser adds a user to the actor's organization and sends an invite.
+//
+// One email = one account. If the email already exists — including an
+// account the person created themselves with "Daftar dengan Google" — no
+// second account is created: the same-org case points the admin to Edit,
+// and an account in another organization is never moved (that would hand
+// over someone else's workspace). branchID is the actor's book/branch scope,
+// inherited by the new account.
+func (s *UserService) CreateUser(orgID, branchID uint, input *CreateUserInput) (*InviteResult, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Email = NormalizeEmail(input.Email)
+	if input.Name == "" || input.Email == "" {
+		return nil, ErrNameEmailRequired
+	}
+	if at := strings.Index(input.Email, "@"); at < 1 || at == len(input.Email)-1 {
+		return nil, ErrInvalidEmail
+	}
+
+	existing, err := s.userRepo.FindByEmailUnscoped(input.Email)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		switch {
+		case existing.DeletedAt.Valid:
+			return nil, ErrEmailDeleted
+		case existing.OrganizationID == orgID:
+			return nil, ErrUserExists
+		default:
+			return nil, ErrEmailInOtherOrg
+		}
+	}
+
+	hashed, err := UnusablePasswordHash()
+	if err != nil {
+		return nil, err
+	}
+	user := &models.User{
+		Name:           input.Name,
+		Email:          input.Email,
+		Password:       hashed,
+		NoPassword:     true,
+		IsActive:       true,
+		OrganizationID: orgID,
+		BranchID:       branchID,
+	}
+	if err := s.checkPlatformRole(user, input.RoleIDs); err != nil {
+		return nil, err
+	}
+	if err := s.userRepo.CreateWithRoles(user, input.RoleIDs); err != nil {
+		return nil, err
+	}
+
+	full, err := s.userRepo.FindByID(user.ID)
+	if err != nil || full == nil {
+		return nil, errors.New("failed to load created user")
+	}
+	return s.invite(full), nil
+}
+
+// ResendInvite issues a fresh invite link for a user who has not set a
+// password yet. Accounts that already have one use "lupa password".
+func (s *UserService) ResendInvite(id, orgID uint) (*InviteResult, error) {
+	user, err := s.userRepo.FindByIDInOrg(id, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
+	if !user.NoPassword {
+		return nil, ErrAlreadyActivated
+	}
+	return s.invite(user), nil
+}
+
+// invite never fails the request: the user exists either way, and a
+// failed delivery just means the admin resends later.
+func (s *UserService) invite(user *models.User) *InviteResult {
+	res := &InviteResult{User: user}
+	if s.inviter == nil {
+		return res
+	}
+	link, emailed, err := s.inviter.SendInvite(user)
+	if err != nil {
+		log.Printf("[users] undangan %s gagal dibuat: %v", user.Email, err)
+		return res
+	}
+	res.InviteSent, res.InviteLink = emailed, link
+	return res
 }
 
 // ListUsersInput is intentionally empty: pagination/filtering is not
@@ -33,7 +151,8 @@ func (s *UserService) ListUsers(_ *ListUsersInput, orgID uint) ([]models.User, e
 	return s.userRepo.FindAll(orgID)
 }
 
-// GetUser returns a single user by ID within the actor's organization.
+// GetUser returns a single user by ID within the actor's organization
+// (orgID=0 → any user).
 func (s *UserService) GetUser(id, orgID uint) (*models.User, error) {
 	return s.userRepo.FindByIDInOrg(id, orgID)
 }
@@ -71,59 +190,6 @@ func (s *UserService) filterPlatformRoles(roleIDs []uint) ([]uint, error) {
 	return clean, nil
 }
 
-// CreateUserInput is the payload accepted by POST /api/users. The new
-// account always joins the CALLING admin's organization — never a fresh
-// tenant — so the admin dashboard keeps showing one masjid's workspace.
-type CreateUserInput struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	RoleIDs  []uint `json:"role_ids"`
-}
-
-// CreateUser adds a user INSIDE the given organization (the actor's).
-// Email must be globally unique; password is required and stored hashed.
-// Platform roles (superadmin) are stripped from the request.
-func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (*models.User, error) {
-	if input.Name == "" || input.Email == "" {
-		return nil, errors.New("nama dan email wajib diisi")
-	}
-	if len(input.Password) < MinPasswordLength {
-		return nil, ErrPasswordTooShort
-	}
-	existing, err := s.userRepo.FindByEmail(input.Email)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return nil, ErrEmailTaken
-	}
-	roleIDs, err := s.filterPlatformRoles(input.RoleIDs)
-	if err != nil {
-		return nil, err
-	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, errors.New("failed to hash password")
-	}
-	user := &models.User{
-		Name:           input.Name,
-		Email:          input.Email,
-		Password:       string(hashed),
-		IsActive:       true,
-		OrganizationID: orgID,
-		BranchID:       branchID,
-	}
-	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
-		return nil, err
-	}
-	full, err := s.userRepo.FindByID(user.ID)
-	if err != nil || full == nil {
-		return nil, ErrUserNotFound
-	}
-	return full, nil
-}
-
 // UpdateUserInput is the payload accepted by PUT /api/users/:id.
 // Password is OPTIONAL — when empty, the existing hash is kept.
 // RoleIDs replaces the full M2M set (NOT a delta merge).
@@ -133,15 +199,16 @@ func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (
 // keys (`role_ids`, `is_active`). Mismatch would silently strip existing
 // bindings on every edit.
 type UpdateUserInput struct {
-	Name     string  `json:"name,omitempty"`
-	Email    string  `json:"email,omitempty"`
-	Password string  `json:"password,omitempty"`
-	IsActive *bool   `json:"is_active,omitempty"`
-	RoleIDs  []uint  `json:"role_ids,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Email    string `json:"email,omitempty"`
+	Password string `json:"password,omitempty"`
+	IsActive *bool  `json:"is_active,omitempty"`
+	RoleIDs  []uint `json:"role_ids,omitempty"`
 }
 
-// UpdateUser applies the input to an existing user record.
-// Email uniqueness is checked locally before save to surface 409.
+// UpdateUser applies the input to an existing user record in the actor's
+// organization (orgID=0 → any user). Email uniqueness is checked locally
+// before save to surface 409.
 func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*models.User, error) {
 	user, err := s.userRepo.FindByIDInOrg(id, orgID)
 	if err != nil {
@@ -150,7 +217,11 @@ func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*model
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
+	if err := s.checkPlatformRole(user, input.RoleIDs); err != nil {
+		return nil, err
+	}
 
+	input.Email = NormalizeEmail(input.Email)
 	if input.Email != "" && input.Email != user.Email {
 		existing, err := s.userRepo.FindByEmail(input.Email)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -177,6 +248,7 @@ func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*model
 			return nil, errors.New("failed to hash password")
 		}
 		user.Password = string(hashed)
+		user.NoPassword = false
 	}
 
 	// Strip platform-level roles from admin-supplied role sets so the
@@ -210,11 +282,43 @@ func (s *UserService) DeleteUser(actorID, targetID, orgID uint) error {
 	return s.userRepo.Delete(targetID, orgID)
 }
 
+// checkPlatformRole keeps the superadmin role off tenant accounts. Only
+// org-0 users may hold it, and only a platform actor can reach those.
+func (s *UserService) checkPlatformRole(user *models.User, roleIDs []uint) error {
+	if user.OrganizationID == 0 || len(roleIDs) == 0 {
+		return nil
+	}
+	platform, err := s.roleRepo.FindByName(platformRoleName)
+	if err != nil {
+		return err
+	}
+	if platform == nil {
+		return nil
+	}
+	for _, id := range roleIDs {
+		if id == platform.ID {
+			return ErrPlatformRoleForbidden
+		}
+	}
+	return nil
+}
+
 // Domain-level errors so the handler layer can map them to status codes
 // without leaking gorm/sql details.
 var (
-	ErrPasswordTooShort   = fmt.Errorf("password minimal %d karakter", MinPasswordLength)
-	ErrUserNotFound       = errors.New("user not found")
-	ErrEmailTaken         = errors.New("email already registered")
-	ErrSelfDeleteForbidden = errors.New("admins cannot delete their own account")
+	ErrPasswordTooShort      = fmt.Errorf("password minimal %d karakter", MinPasswordLength)
+	ErrUserNotFound          = errors.New("user not found")
+	ErrEmailTaken            = errors.New("email already registered")
+	ErrSelfDeleteForbidden   = errors.New("admins cannot delete their own account")
+	ErrPlatformRoleForbidden = errors.New("role superadmin hanya untuk akun platform, bukan akun organisasi")
+	ErrNameEmailRequired     = errors.New("nama dan email wajib diisi")
+	ErrInvalidEmail          = errors.New("format email tidak valid")
+	ErrUserExists            = errors.New("user dengan email ini sudah ada di organisasi ini, silakan edit user tersebut")
+	ErrEmailInOtherOrg       = errors.New("email ini sudah terdaftar di organisasi lain (mis. daftar sendiri via google); satu email hanya bisa dipakai satu organisasi")
+	ErrEmailDeleted          = errors.New("email ini milik user yang sudah dihapus dan belum bisa dipakai lagi")
+	ErrAlreadyActivated      = errors.New("user sudah mengaktifkan akun; gunakan \"lupa password\" untuk reset")
 )
+
+// platformRoleName mirrors middleware.PlatformRoleName (service must not
+// import the HTTP layer).
+const platformRoleName = "superadmin"

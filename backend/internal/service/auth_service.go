@@ -41,13 +41,13 @@ type SMTPConfig struct {
 
 // AuthService handles authentication business logic.
 type AuthService struct {
-	userRepo     *repository.UserRepository
-	roleRepo     *repository.RoleRepository
-	jwtSecret    string
-	db           *gorm.DB
-	googleOAuth  *oauth2.Config
-	smtp         SMTPConfig
-	frontendURL  string
+	userRepo    *repository.UserRepository
+	roleRepo    *repository.RoleRepository
+	jwtSecret   string
+	db          *gorm.DB
+	googleOAuth *oauth2.Config
+	smtp        SMTPConfig
+	frontendURL string
 }
 
 // NewAuthService creates a new AuthService.
@@ -68,7 +68,10 @@ func NewAuthService(
 		smtp:        smtp,
 		frontendURL: frontendURL,
 	}
-	if googleClientID != "" && googleClientSecret != "" && googleRedirectURL != "" {
+	// Cukup CLIENT_ID + CLIENT_SECRET. RedirectURL opsional: kalau kosong,
+	// handler menurunkannya per-request dari origin frontend
+	// (<origin>/api/auth/google/callback, lewat Vite proxy).
+	if googleClientID != "" && googleClientSecret != "" {
 		svc.googleOAuth = &oauth2.Config{
 			ClientID:     googleClientID,
 			ClientSecret: googleClientSecret,
@@ -123,6 +126,9 @@ func (s *AuthService) ChangePassword(userID uint, input *ChangePasswordInput) er
 	if user == nil {
 		return errors.New("user not found")
 	}
+	if user.NoPassword {
+		return ErrNoPasswordYet
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.CurrentPassword)); err != nil {
 		return errors.New("password saat ini salah")
 	}
@@ -136,6 +142,7 @@ func (s *AuthService) ChangePassword(userID uint, input *ChangePasswordInput) er
 // Register creates a new masjid organization plus an admin account that
 // owns it, and returns a JWT with the freshly flattened permission set.
 func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
+	input.Email = NormalizeEmail(input.Email)
 	if len(input.Password) < MinPasswordLength {
 		return nil, ErrPasswordTooShort
 	}
@@ -230,19 +237,9 @@ func (s *AuthService) ForgotPassword(email string) error {
 		return nil
 	}
 
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return errors.New("failed to generate reset token")
-	}
-	token := hex.EncodeToString(tokenBytes)
-
-	record := models.PasswordResetToken{
-		UserID:    user.ID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(time.Hour),
-	}
-	if err := s.db.Create(&record).Error; err != nil {
-		return errors.New("failed to save reset token")
+	token, err := s.issueSetPasswordToken(user.ID, time.Hour)
+	if err != nil {
+		return err
 	}
 
 	link := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(s.frontendURL, "/"), token)
@@ -256,6 +253,59 @@ func (s *AuthService) ForgotPassword(email string) error {
 	}
 	log.Printf("[auth] RESET LINK (SMTP belum dikonfigurasi): %s", link)
 	return nil
+}
+
+// inviteTTL is how long an admin invite link stays valid.
+const inviteTTL = 7 * 24 * time.Hour
+
+// issueSetPasswordToken stores a one-time token that lets the email owner
+// set a password via /reset-password (forgot password and invites).
+func (s *AuthService) issueSetPasswordToken(userID uint, ttl time.Duration) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", errors.New("failed to generate reset token")
+	}
+	token := hex.EncodeToString(tokenBytes)
+	record := models.PasswordResetToken{
+		UserID:    userID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+	if err := s.db.Create(&record).Error; err != nil {
+		return "", errors.New("failed to save reset token")
+	}
+	return token, nil
+}
+
+// SendInvite emails an admin-created user a link to set their password
+// (or they can simply sign in with Google using the same email). The
+// admin never chooses or sees the password. When SMTP is not configured
+// the link is returned with emailed=false so the admin can share it.
+func (s *AuthService) SendInvite(user *models.User) (link string, emailed bool, err error) {
+	token, err := s.issueSetPasswordToken(user.ID, inviteTTL)
+	if err != nil {
+		return "", false, err
+	}
+	link = fmt.Sprintf("%s/reset-password?token=%s&invite=1", strings.TrimRight(s.frontendURL, "/"), token)
+
+	orgName := "MasjidHub"
+	var org models.Organization
+	if user.OrganizationID != 0 && s.db.First(&org, user.OrganizationID).Error == nil && org.Name != "" {
+		orgName = org.Name
+	}
+	if s.smtp.Host == "" {
+		log.Printf("[auth] INVITE LINK untuk %s (SMTP belum dikonfigurasi): %s", user.Email, link)
+		return link, false, nil
+	}
+	body := fmt.Sprintf(
+		"Halo %s,\n\nAnda ditambahkan ke %s.\n\nAktifkan akun dengan membuat password (link berlaku 7 hari):\n%s\n\nAtau langsung pilih \"Masuk dengan Google\" memakai email ini (%s).",
+		user.Name, orgName, link, user.Email,
+	)
+	if err := s.sendEmail(user.Email, "Undangan — "+orgName, body); err != nil {
+		log.Printf("[auth] kirim undangan ke %s gagal: %v", user.Email, err)
+		return link, false, nil
+	}
+	return "", true, nil
 }
 
 // ResetPassword validates a reset token and updates the user's password.
@@ -291,7 +341,7 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	if claim.RowsAffected == 0 {
 		return errors.New("token reset tidak valid atau sudah kedaluwarsa")
 	}
-	if err := s.db.Model(user).Update("password", string(hashed)).Error; err != nil {
+	if err := s.userRepo.UpdatePassword(user.ID, string(hashed)); err != nil {
 		return errors.New("failed to update password")
 	}
 	return nil
@@ -310,36 +360,74 @@ func (s *AuthService) sendEmail(to, subject, body string) error {
 
 // ─── Google OAuth ─────────────────────────────────────────────────────────────
 
-// GoogleAuthURL returns the Google consent URL (state = CSRF token). Returns
-// an error when Google OAuth is not configured.
-func (s *AuthService) GoogleAuthURL(state string) (string, error) {
+// ErrGoogleNotConfigured is returned when GOOGLE_CLIENT_ID/SECRET are unset.
+var ErrGoogleNotConfigured = errors.New("login google belum dikonfigurasi")
+
+// ErrGoogleAccountNotFound: "Masuk dengan Google" for an unregistered email.
+var ErrGoogleAccountNotFound = errors.New("akun google ini belum terdaftar, silakan daftar terlebih dahulu")
+
+// ErrGoogleAccountConflict: the email is already linked to a different
+// Google account (e.g. the address was reassigned in Google Workspace).
+var ErrGoogleAccountConflict = errors.New("email ini sudah terhubung ke akun google lain")
+
+// ErrNoPasswordYet: Google-only / invited accounts have no password to
+// verify; they create one through the emailed link instead.
+var ErrNoPasswordYet = errors.New("akun ini belum punya password (masuk via google / undangan); gunakan \"lupa password\" untuk membuatnya")
+
+// GoogleEnabled reports whether GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET are set.
+func (s *AuthService) GoogleEnabled() bool { return s.googleOAuth != nil }
+
+// GoogleFixedRedirectURL returns GOOGLE_REDIRECT_URL (empty = derive per request).
+func (s *AuthService) GoogleFixedRedirectURL() string {
 	if s.googleOAuth == nil {
-		return "", errors.New("google oauth tidak dikonfigurasi")
+		return ""
 	}
-	return s.googleOAuth.AuthCodeURL(state, oauth2.AccessTypeOffline), nil
+	return s.googleOAuth.RedirectURL
 }
 
-// HandleGoogleCallback exchanges the code for a Google profile, then logs
-// in or registers the matching user (SaaS model: new emails become admin).
+// googleConfig returns a copy of the OAuth config bound to redirectURL. The
+// same redirectURL MUST be used for the consent URL and the code exchange.
+func (s *AuthService) googleConfig(redirectURL string) *oauth2.Config {
+	cfg := *s.googleOAuth
+	if cfg.RedirectURL == "" {
+		cfg.RedirectURL = redirectURL
+	}
+	return &cfg
+}
+
+// GoogleAuthURL returns the Google consent URL (state = CSRF token). Returns
+// an error when Google OAuth is not configured.
+func (s *AuthService) GoogleAuthURL(state, redirectURL string) (string, error) {
+	if s.googleOAuth == nil {
+		return "", ErrGoogleNotConfigured
+	}
+	return s.googleConfig(redirectURL).AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "select_account")), nil
+}
+
+// HandleGoogleCallback exchanges the code for a Google profile and logs in
+// the matching user. An unknown email gets a new workspace account (SaaS
+// model: the signup becomes its admin) only when register is true, so
+// "Masuk dengan Google" never creates accounts by accident.
 //
 // ctx MUST be non-nil: golang.org/x/oauth2 ends up calling
 // (*http.Request).WithContext, which panics with "nil context" when handed
 // a nil parent (this is what broke the Google signup flow previously), and
 // Config.Client also needs it to attach cancellation to the profile call.
-func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*AuthResponse, error) {
+func (s *AuthService) HandleGoogleCallback(ctx context.Context, code, redirectURL string, register bool) (*AuthResponse, error) {
 	if s.googleOAuth == nil {
-		return nil, errors.New("google oauth tidak dikonfigurasi")
+		return nil, ErrGoogleNotConfigured
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	tok, err := s.googleOAuth.Exchange(ctx, code)
+	cfg := s.googleConfig(redirectURL)
+	tok, err := cfg.Exchange(ctx, code)
 	if err != nil {
 		log.Printf("[auth] google token exchange gagal: %v", err)
 		return nil, errors.New("google token exchange gagal")
 	}
 
-	client := s.googleOAuth.Client(ctx, tok)
+	client := cfg.Client(ctx, tok)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
 		return nil, errors.New("gagal mengambil profil google")
@@ -355,16 +443,24 @@ func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*A
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, errors.New("gagal membaca profil google")
 	}
-	if info.Email == "" {
+	if info.Email == "" || info.ID == "" {
 		return nil, errors.New("akun google tidak memiliki email")
 	}
+	// Email belum terverifikasi tidak boleh dipakai: login by email bisa
+	// mengambil alih akun lokal dengan email yang sama.
+	if !info.VerifiedEmail {
+		return nil, errors.New("email google belum terverifikasi")
+	}
 
-	user, err := s.userRepo.FindByEmail(info.Email)
+	user, err := s.findOrLinkGoogleUser(info.ID, info.Email)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
-		user, err = s.createGoogleUser(info.Name, info.Email)
+		if !register {
+			return nil, ErrGoogleAccountNotFound
+		}
+		user, err = s.createGoogleUser(info.Name, NormalizeEmail(info.Email), info.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -384,8 +480,55 @@ func (s *AuthService) HandleGoogleCallback(ctx context.Context, code string) (*A
 	return &AuthResponse{Token: token, User: full}, nil
 }
 
+// findOrLinkGoogleUser resolves a Google profile to an existing account:
+// first by Google "sub", then by (verified) email. A match by email — e.g.
+// a user an admin invited, or one who registered with a password — gets
+// the Google ID linked, so both sign-in methods reach the same account
+// instead of creating a duplicate. Returns nil when no account matches.
+func (s *AuthService) findOrLinkGoogleUser(googleID, email string) (*models.User, error) {
+	user, err := s.userRepo.FindByGoogleID(googleID)
+	if err != nil || user != nil {
+		return user, err
+	}
+	user, err = s.userRepo.FindByEmail(email)
+	if err != nil || user == nil {
+		return user, err
+	}
+	if user.GoogleID != nil {
+		if *user.GoogleID != googleID {
+			return nil, ErrGoogleAccountConflict
+		}
+		return user, nil
+	}
+	if err := s.userRepo.LinkGoogle(user.ID, googleID); err != nil {
+		return nil, errors.New("gagal menghubungkan akun google")
+	}
+	user.GoogleID = &googleID
+	return user, nil
+}
+
+// UnusablePasswordHash hashes random bytes nobody knows, for accounts that
+// must not log in with a password until the owner sets one by email.
+func UnusablePasswordHash() (string, error) {
+	randBytes := make([]byte, 16)
+	if _, err := rand.Read(randBytes); err != nil {
+		return "", errors.New("failed to generate password")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(hex.EncodeToString(randBytes)), bcrypt.DefaultCost)
+	if err != nil {
+		return "", errors.New("failed to hash password")
+	}
+	return string(hashed), nil
+}
+
+// NormalizeEmail trims and lowercases an email so one address maps to one
+// account regardless of how it was typed.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // createGoogleUser registers a new masjid admin for a Google signup.
-func (s *AuthService) createGoogleUser(name, email string) (*models.User, error) {
+func (s *AuthService) createGoogleUser(name, email, googleID string) (*models.User, error) {
 	adminRole, err := s.roleRepo.FindByName(DefaultRoleName)
 	if err != nil {
 		return nil, errors.New("default role lookup failed")
@@ -395,16 +538,17 @@ func (s *AuthService) createGoogleUser(name, email string) (*models.User, error)
 		return nil, errors.New("failed to create organization")
 	}
 	// Google signups get a random unusable password (OAuth login only).
-	randBytes := make([]byte, 16)
-	if _, err := rand.Read(randBytes); err != nil {
-		return nil, errors.New("failed to generate password")
+	hashed, err := UnusablePasswordHash()
+	if err != nil {
+		return nil, err
 	}
-	hashed, _ := bcrypt.GenerateFromPassword([]byte(hex.EncodeToString(randBytes)), bcrypt.DefaultCost)
 
 	user := &models.User{
 		Name:           name,
 		Email:          email,
-		Password:       string(hashed),
+		Password:       hashed,
+		NoPassword:     true,
+		GoogleID:       &googleID,
 		IsActive:       true,
 		OrganizationID: org.ID,
 	}

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useAuth } from "@/context/AuthContext"
-import { authApi } from "@/lib/api"
+import { authApi, fetchGoogleEnabled } from "@/lib/api"
 import { Moon, Loader2, Eye, EyeOff } from "lucide-react"
 
 export default function LoginPage() {
@@ -16,15 +16,21 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
+  // Backend mengarahkan kembali ke /login?google_error=... kalau login Google gagal.
+  const [error, setError] = useState(() => searchParams.get("google_error") ?? "")
+  const [loading, setLoading] = useState(() => searchParams.has("google_token"))
+  const [googleEnabled, setGoogleEnabled] = useState(false)
 
-  // Google OAuth callback: ?google_token=...
+  useEffect(() => {
+    fetchGoogleEnabled().then(setGoogleEnabled)
+  }, [])
+
+  // Google OAuth callback: ?google_token=... atau ?google_error=...
   useEffect(() => {
     const t = searchParams.get("google_token")
-    if (t) {
-      setLoading(true)
-      setError("")
+    if (searchParams.has("google_error")) {
+      navigate("/login", { replace: true })
+    } else if (t) {
       loginWithToken(t)
         .then(() => navigate("/admin", { replace: true }))
         .catch((e) => setError(e instanceof Error ? e.message : "Google login gagal"))
@@ -50,8 +56,6 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
-
-  const googleDisabled = false // handled by backend 503 if unconfigured
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-muted/30 px-4">
@@ -125,8 +129,8 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Memproses...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Memproses...
                 </>
               ) : (
                 "Masuk"
@@ -134,30 +138,33 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">atau</span>
-            </div>
-          </div>
+          {googleEnabled && (
+            <>
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">atau</span>
+                </div>
+              </div>
 
-          {/* Google */}
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={googleDisabled}
-            onClick={() => {
-              window.location.href = authApi.googleAuthUrl()
-            }}
-          >
-            <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21.35 11.1H12v3.2h5.36c-.45 2.28-2.46 3.6-5.36 3.6-3.2 0-5.8-2.6-5.8-5.8s2.6-5.8 5.8-5.8c1.5 0 2.9.55 3.97 1.46l2.4-2.4A9.1 9.1 0 0 0 12 3.2c-4.9 0-8.8 3.9-8.8 8.8s3.9 8.8 8.8 8.8c5.1 0 8.4-3.6 8.4-8.8 0-.6-.05-1.1-.15-1.5z" />
-            </svg>
-            Masuk dengan Google
-          </Button>
+              {/* Google */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  window.location.href = authApi.googleAuthUrl("login")
+                }}
+              >
+                <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M21.35 11.1H12v3.2h5.36c-.45 2.28-2.46 3.6-5.36 3.6-3.2 0-5.8-2.6-5.8-5.8s2.6-5.8 5.8-5.8c1.5 0 2.9.55 3.97 1.46l2.4-2.4A9.1 9.1 0 0 0 12 3.2c-4.9 0-8.8 3.9-8.8 8.8s3.9 8.8 8.8 8.8c5.1 0 8.4-3.6 8.4-8.8 0-.6-.05-1.1-.15-1.5z" />
+                </svg>
+                Masuk dengan Google
+              </Button>
+            </>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             Belum punya akun?{" "}

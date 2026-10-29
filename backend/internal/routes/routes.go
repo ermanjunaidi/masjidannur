@@ -49,6 +49,7 @@ func SetupRoutes(
 	auth.Post("/reset-password", authHandler.ResetPassword)
 	auth.Get("/google", authHandler.GoogleAuth)
 	auth.Get("/google/callback", authHandler.GoogleCallback)
+	auth.Get("/google/status", authHandler.GoogleStatus)
 
 	// Protected auth endpoints (me, change-password). JWT required.
 	authProtected := auth.Group("", middleware.RequireAuth(resolver))
@@ -102,6 +103,7 @@ func SetupRoutes(
 	users.Get("/:id", middleware.RequirePermission("users:read"), userHandler.GetUser)
 	users.Put("/:id", middleware.RequirePermission("users:write"), userHandler.UpdateUser)
 	users.Delete("/:id", middleware.RequirePermission("users:delete"), userHandler.DeleteUser)
+	users.Post("/:id/invite", middleware.RequirePermission("users:write"), userHandler.ResendInvite)
 
 	// ─── Roles + Permissions catalog ─────────────────────────────────
 	roles := api.Group("/roles", middleware.RequireAuth(resolver))

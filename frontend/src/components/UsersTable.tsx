@@ -294,7 +294,19 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                       </p>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
-                      {u.email}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{u.email}</span>
+                        {u.google_linked && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Google
+                          </Badge>
+                        )}
+                        {!u.has_password && !u.google_linked && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            undangan
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-wrap gap-1">

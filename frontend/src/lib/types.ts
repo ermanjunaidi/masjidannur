@@ -22,8 +22,11 @@ export interface User {
   name: string
   email: string
   is_active: boolean
-  /** 0 = platform staff (superadmin); otherwise the masjid (tenant) id. */
+  /** 0 = platform-level account (superadmin), otherwise the organization. */
   organization_id: number
+  /** false = Google-only or invite not yet accepted (no password set). */
+  has_password: boolean
+  google_linked: boolean
   roles: Role[]
   created_at: string
   updated_at: string
@@ -67,6 +70,8 @@ export interface Organization {
   phone: string
   email: string
   address: string
+  /** Future subdomain (<slug>.<domain>). */
+  slug: string | null
   created_at: string
   updated_at: string
 }
