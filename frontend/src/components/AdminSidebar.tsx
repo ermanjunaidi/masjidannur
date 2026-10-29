@@ -41,10 +41,13 @@ const navItems: NavItem[] = [
   { icon: Settings, label: "Settings", href: "/admin/settings", permission: "settings:read" },
 ]
 
-export default function AdminSidebar() {
+// `mobile` renders the sidebar inside the mobile drawer: always expanded,
+// no collapse toggle.
+export default function AdminSidebar({ mobile = false }: { mobile?: boolean }) {
   const { pathname } = useLocation()
   const { logout, user, hasPermission } = useAuth()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsedState, setCollapsed] = useState(false)
+  const collapsed = !mobile && collapsedState
 
   // A "deselect-all" role (zero permissions) grants nothing, so it must not
   // surface in the sidebar — neither as a label nor in the permission count.
@@ -64,7 +67,8 @@ export default function AdminSidebar() {
     <aside
       className={cn(
         "flex flex-col border-r bg-card transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
+        mobile ? "min-h-full w-full border-r-0" : "h-full",
+        !mobile && (collapsed ? "w-16" : "w-64")
       )}
     >
       {/* Logo */}
@@ -88,7 +92,7 @@ export default function AdminSidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {navItems.map((item) => {
           if (item.permission && !hasPermission(item.permission)) {
             return null
@@ -99,7 +103,7 @@ export default function AdminSidebar() {
               key={item.href}
               to={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 md:py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -135,6 +139,7 @@ export default function AdminSidebar() {
         )}
 
         {/* Collapse toggle */}
+        {!mobile && (
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -145,6 +150,7 @@ export default function AdminSidebar() {
             <ChevronLeft className="h-4 w-4" />
           )}
         </button>
+        )}
 
         {/* Logout */}
         <Button

@@ -114,6 +114,13 @@ func NewEnv() *Env {
 		os.Exit(1)
 	}
 
+	// ── Startup validation: production MUST NOT use a weak JWT secret ─────
+	// A guessable secret lets anyone forge a token with every permission.
+	if env.AppEnv == "production" && (env.JWTSecret == "supersecret" || len(env.JWTSecret) < 32) {
+		fmt.Println("[config] FATAL: JWT_SECRET kosong/lemah di production — set minimal 32 karakter acak (mis. `openssl rand -hex 32`).")
+		os.Exit(1)
+	}
+
 	return env
 }
 

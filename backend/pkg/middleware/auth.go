@@ -60,10 +60,12 @@ func RequireAuth(resolver claimResolver) fiber.Handler {
 		c.Locals(CtxOrganizationID, claims.OrganizationID)
 		c.Locals(CtxRoles, claims.Roles)
 		c.Locals(CtxPermissions, claims.Permissions)
-		// Branch ID from header overrides JWT claim (allows UI switching).
+		// Branch ID from header overrides JWT claim (allows UI switching),
+		// but only for users not pinned to a branch — otherwise a
+		// branch-scoped user could read any branch of the organization.
 		branchHeader := c.Get("X-Branch-ID")
 		branchID := claims.BranchID
-		if branchHeader != "" {
+		if branchHeader != "" && claims.BranchID == 0 {
 			if id, err := parseUint(branchHeader); err == nil {
 				branchID = id
 			}
@@ -89,6 +91,20 @@ func RequirePermission(key string) fiber.Handler {
 		}
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "forbidden: missing permission " + key,
+		})
+	}
+}
+
+// RequirePlatformAdmin 403s unless the caller is platform staff
+// (organization_id 0). Used for resources shared by every tenant, such
+// as the global role catalog. Must be mounted AFTER RequireAuth.
+func RequirePlatformAdmin() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if orgID, ok := ActorOrgID(c); ok && orgID == 0 {
+			return c.Next()
+		}
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "forbidden: platform admin only",
 		})
 	}
 }

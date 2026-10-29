@@ -239,12 +239,12 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                   Name
                 </SortButton>
               </TableHead>
-              <TableHead>
+              <TableHead className="hidden sm:table-cell">
                 <SortButton active={sortKey === "email"} dir={sortDir} onClick={() => toggleSort("email")}>
                   Email
                 </SortButton>
               </TableHead>
-              <TableHead>
+              <TableHead className="hidden md:table-cell">
                 <SortButton active={sortKey === "role"} dir={sortDir} onClick={() => toggleSort("role")}>
                   Roles
                 </SortButton>
@@ -254,7 +254,7 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                   Status
                 </SortButton>
               </TableHead>
-              <TableHead>
+              <TableHead className="hidden lg:table-cell">
                 <SortButton active={sortKey === "joinedAt"} dir={sortDir} onClick={() => toggleSort("joinedAt")}>
                   Joined
                 </SortButton>
@@ -289,11 +289,14 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                           </Badge>
                         )}
                       </div>
+                      <p className="text-xs font-normal text-muted-foreground sm:hidden">
+                        {u.email}
+                      </p>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="hidden text-muted-foreground sm:table-cell">
                       {u.email}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <div className="flex flex-wrap gap-1">
                         {!u.roles || u.roles.length === 0 ? (
                           <span className="text-xs text-muted-foreground">
@@ -319,12 +322,12 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                         {u.is_active ? "active" : "inactive"}
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
+                    <TableCell className="hidden text-muted-foreground text-xs lg:table-cell">
                       {fmtDate(u.created_at)}
                     </TableCell>
                     {(canWrite || canDelete) && (
                       <TableCell>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           {canWrite && (
                             <Button
                               variant="ghost"
@@ -427,14 +430,12 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
 
 function SortButton({
   active,
-  dir: _dir,
   onClick,
   children,
 }: {
   active: boolean
   // dir is forwarded by callers but currently only the "active" state
-  // affects styling; underscore-prefix silences the unused-var lint
-  // while keeping the prop in the public API for free.
+  // affects styling; it stays in the prop type for the public API.
   dir: SortDir
   onClick: () => void
   children: React.ReactNode

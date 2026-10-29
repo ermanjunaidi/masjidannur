@@ -134,7 +134,7 @@ export default function LecturingsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Tanggal</TableHead>
-                <TableHead>Jenis</TableHead>
+                <TableHead className="hidden sm:table-cell">Jenis</TableHead>
                 <TableHead>Pemateri / Khatib</TableHead>
                 <TableHead className="hidden md:table-cell">Waktu</TableHead>
                 <TableHead className="hidden lg:table-cell">Topik / Kitab</TableHead>
@@ -158,13 +158,21 @@ export default function LecturingsPage() {
               ) : (
                 pageItems.map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell className="font-medium whitespace-nowrap">{l.date}</TableCell>
-                    <TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">
+                      {l.date}
+                      {/* On phones the Jenis column is hidden, so show it here. */}
+                      <div className="mt-1 sm:hidden">
+                        <Badge variant="outline" className={AUDIENCE_STYLES[l.audience]}>
+                          {AUDIENCE_LABELS[l.audience]}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge variant="outline" className={AUDIENCE_STYLES[l.audience]}>
                         {AUDIENCE_LABELS[l.audience]}
                       </Badge>
                     </TableCell>
-                    <TableCell>{l.lecturer_name}</TableCell>
+                    <TableCell className="whitespace-normal">{l.lecturer_name}</TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
                       {timeLabel(l)}
                     </TableCell>

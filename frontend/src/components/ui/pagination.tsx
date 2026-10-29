@@ -99,7 +99,7 @@ export function Pagination({
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex items-center gap-1">
           <Button
             variant="outline"
@@ -121,8 +121,8 @@ export function Pagination({
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </Button>
-          <span className="px-2 tabular-nums">
-            Page{" "}
+          <span className="whitespace-nowrap px-2 tabular-nums">
+            <span className="hidden sm:inline">Page </span>
             <span className="font-medium text-foreground">{safePage}</span> of{" "}
             <span className="font-medium text-foreground">{totalPages}</span>
           </span>
@@ -149,7 +149,7 @@ export function Pagination({
         </div>
 
         <label className="inline-flex items-center gap-1.5">
-          <span>Rows per page</span>
+          <span className="hidden sm:inline">Rows per page</span>
           <select
             value={pageSize}
             onChange={(e) => setSize(Number(e.target.value))}

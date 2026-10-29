@@ -113,8 +113,8 @@ func (s *AuthService) ChangePassword(userID uint, input *ChangePasswordInput) er
 	if input.CurrentPassword == "" || input.NewPassword == "" {
 		return errors.New("password saat ini dan password baru wajib diisi")
 	}
-	if len(input.NewPassword) < 6 {
-		return errors.New("password baru minimal 6 karakter")
+	if len(input.NewPassword) < MinPasswordLength {
+		return ErrPasswordTooShort
 	}
 	user, err := s.userRepo.FindByID(userID)
 	if err != nil {
@@ -136,6 +136,9 @@ func (s *AuthService) ChangePassword(userID uint, input *ChangePasswordInput) er
 // Register creates a new masjid organization plus an admin account that
 // owns it, and returns a JWT with the freshly flattened permission set.
 func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
+	if len(input.Password) < MinPasswordLength {
+		return nil, ErrPasswordTooShort
+	}
 	existing, _ := s.userRepo.FindByEmail(input.Email)
 	if existing != nil {
 		return nil, errors.New("email already registered")
@@ -257,8 +260,8 @@ func (s *AuthService) ForgotPassword(email string) error {
 
 // ResetPassword validates a reset token and updates the user's password.
 func (s *AuthService) ResetPassword(token, newPassword string) error {
-	if len(newPassword) < 6 {
-		return errors.New("password minimal 6 karakter")
+	if len(newPassword) < MinPasswordLength {
+		return ErrPasswordTooShort
 	}
 	var record models.PasswordResetToken
 	if err := s.db.Where("token = ? AND used = false AND expires_at > ?", token, time.Now()).First(&record).Error; err != nil {
@@ -277,10 +280,21 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	if err != nil {
 		return errors.New("failed to hash password")
 	}
+	// Claim the token atomically first so two concurrent requests cannot
+	// both redeem it.
+	claim := s.db.Model(&models.PasswordResetToken{}).
+		Where("id = ? AND used = false", record.ID).
+		Update("used", true)
+	if claim.Error != nil {
+		return claim.Error
+	}
+	if claim.RowsAffected == 0 {
+		return errors.New("token reset tidak valid atau sudah kedaluwarsa")
+	}
 	if err := s.db.Model(user).Update("password", string(hashed)).Error; err != nil {
 		return errors.New("failed to update password")
 	}
-	return s.db.Model(&record).Update("used", true).Error
+	return nil
 }
 
 // sendEmail sends a plain-text email via the configured SMTP server.

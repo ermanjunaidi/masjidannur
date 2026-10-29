@@ -18,5 +18,16 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // The app loads data with the "fetch on mount" pattern (an effect calls
+      // load(), which flips `loading` before awaiting). This rule cannot see
+      // the await and flags every such page, so report it without failing.
+      'react-hooks/set-state-in-effect': 'warn',
+      // Hooks and shadcn variant helpers that live next to their component.
+      'react-refresh/only-export-components': [
+        'error',
+        { allowConstantExport: true, allowExportNames: ['useAuth', 'badgeVariants', 'buttonVariants'] },
+      ],
+    },
   },
 ])

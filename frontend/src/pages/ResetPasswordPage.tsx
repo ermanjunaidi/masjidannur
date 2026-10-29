@@ -25,8 +25,8 @@ export default function ResetPasswordPage() {
       setError("Link reset tidak valid — token hilang")
       return
     }
-    if (!password || password.length < 6) {
-      setError("Password minimal 6 karakter")
+    if (!password || password.length < 8) {
+      setError("Password minimal 8 karakter")
       return
     }
     if (password !== confirmPassword) {
@@ -96,7 +96,7 @@ export default function ResetPasswordPage() {
                   <Input
                     id="new-password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Minimal 6 karakter"
+                    placeholder="Minimal 8 karakter"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="new-password"

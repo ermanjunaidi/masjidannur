@@ -36,6 +36,14 @@ import type { Book, Category, MasjidSettings, Transaction } from "@/lib/types"
 import { formatRupiah, todayISO } from "@/lib/types"
 import { buildTransactionNota, shareWhatsApp } from "@/lib/nota"
 
+function formatTxDate(date: string) {
+  return new Date(date + "T00:00:00").toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  })
+}
+
 export default function TransactionsPage() {
   const [books, setBooks] = useState<Book[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -202,7 +210,7 @@ export default function TransactionsPage() {
         <CardHeader className="gap-3">
           <CardTitle className="text-base">Daftar Transaksi</CardTitle>
           <div className="flex flex-wrap gap-2">
-            <div className="relative w-full max-w-xs">
+            <div className="relative w-full sm:max-w-xs">
               <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
@@ -247,7 +255,7 @@ export default function TransactionsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tanggal</TableHead>
+                <TableHead className="hidden sm:table-cell">Tanggal</TableHead>
                 <TableHead>Kategori</TableHead>
                 <TableHead className="hidden md:table-cell">Keterangan</TableHead>
                 <TableHead className="text-right">Jumlah</TableHead>
@@ -270,15 +278,15 @@ export default function TransactionsPage() {
               ) : (
                 pageItems.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {new Date(t.date + "T00:00:00").toLocaleDateString("id-ID", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                    <TableCell className="hidden whitespace-nowrap tabular-nums sm:table-cell">
+                      {formatTxDate(t.date)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
+                      {/* On phones the date column is hidden, so show it here. */}
+                      <p className="mb-1 text-xs tabular-nums text-muted-foreground sm:hidden">
+                        {formatTxDate(t.date)}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Badge
                           variant="outline"
                           className={
@@ -304,7 +312,7 @@ export default function TransactionsPage() {
                       )}
                     </TableCell>
                     <TableCell
-                      className={`text-right font-semibold tabular-nums ${
+                      className={`whitespace-nowrap text-right font-semibold tabular-nums ${
                         t.type === "pemasukan"
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-rose-600 dark:text-rose-400"

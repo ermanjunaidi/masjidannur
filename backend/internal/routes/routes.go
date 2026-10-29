@@ -19,7 +19,7 @@ import (
 //	/api/lecturings/*       — gated by `lecturings:*`
 //	/api/masjid-settings    — gated by `settings:*`
 //	/api/users/*            — gated per-endpoint by `users:*` permissions
-//	/api/roles/*            — gated per-endpoint by `roles:*` permissions
+//	/api/roles/*            — gated per-endpoint by `roles:*`; writes are platform-admin only
 func SetupRoutes(
 	app *fiber.App,
 	authHandler *handlers.AuthHandler,
@@ -106,9 +106,11 @@ func SetupRoutes(
 	// ─── Roles + Permissions catalog ─────────────────────────────────
 	roles := api.Group("/roles", middleware.RequireAuth(resolver))
 	roles.Get("/", middleware.RequirePermission("roles:read"), roleHandler.ListRoles)
-	roles.Post("/", middleware.RequirePermission("roles:write"), roleHandler.CreateRole)
-	roles.Put("/:id", middleware.RequirePermission("roles:write"), roleHandler.UpdateRole)
-	roles.Delete("/:id", middleware.RequirePermission("roles:delete"), roleHandler.DeleteRole)
+	// Roles are global (shared by every masjid), so only platform staff may
+	// change them — a tenant admin must not alter other tenants' roles.
+	roles.Post("/", middleware.RequirePlatformAdmin(), middleware.RequirePermission("roles:write"), roleHandler.CreateRole)
+	roles.Put("/:id", middleware.RequirePlatformAdmin(), middleware.RequirePermission("roles:write"), roleHandler.UpdateRole)
+	roles.Delete("/:id", middleware.RequirePlatformAdmin(), middleware.RequirePermission("roles:delete"), roleHandler.DeleteRole)
 
 	perms := api.Group("/permissions", middleware.RequireAuth(resolver))
 	perms.Get("/", middleware.RequirePermission("roles:read"), roleHandler.ListPermissions)

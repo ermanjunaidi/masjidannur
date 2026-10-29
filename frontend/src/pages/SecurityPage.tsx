@@ -32,8 +32,8 @@ export default function SecurityPage() {
       setError("Mohon isi password saat ini dan password baru")
       return
     }
-    if (newPassword.length < 6) {
-      setError("Password baru minimal 6 karakter")
+    if (newPassword.length < 8) {
+      setError("Password baru minimal 8 karakter")
       return
     }
     if (newPassword !== confirmPassword) {
@@ -113,7 +113,7 @@ export default function SecurityPage() {
               Ganti Password
             </CardTitle>
             <CardDescription>
-              Gunakan password baru minimal 6 karakter.
+              Gunakan password baru minimal 8 karakter.
             </CardDescription>
           </CardHeader>
           <CardContent>

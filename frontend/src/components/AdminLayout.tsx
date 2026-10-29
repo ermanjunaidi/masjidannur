@@ -1,39 +1,48 @@
-import { Outlet } from "react-router"
+import { useState } from "react"
+import { Outlet, useLocation } from "react-router"
 import AdminSidebar from "./AdminSidebar"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Menu, BookOpen } from "lucide-react"
 
 export default function AdminLayout() {
+  const { pathname } = useLocation()
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // Close the mobile drawer after navigating, otherwise it stays over the
+  // page the user just picked.
+  const [lastPath, setLastPath] = useState(pathname)
+  if (pathname !== lastPath) {
+    setLastPath(pathname)
+    setMenuOpen(false)
+  }
+
   return (
     <div className="flex min-h-svh overflow-x-hidden">
       {/* Desktop sidebar */}
-      <div className="hidden md:flex">
+      <div className="sticky top-0 hidden h-svh md:flex">
         <AdminSidebar />
-      </div>
-
-      {/* Mobile sidebar */}
-      <div className="md:hidden">
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="fixed left-3 top-3 z-40"
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-64">
-            <AdminSidebar />
-          </SheetContent>
-        </Sheet>
       </div>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
-        <header className="md:hidden flex h-16 items-center justify-center border-b bg-card">
+        {/* The drawer sits outside the sticky header: a fixed element inside
+            a backdrop-filter/transform ancestor would be clipped to it. */}
+        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+          <SheetContent side="left" className="p-0 w-64">
+            <AdminSidebar mobile />
+          </SheetContent>
+        </Sheet>
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-card px-2 md:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Buka menu"
+            onClick={() => setMenuOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
           <div className="flex items-center gap-2 font-bold">
             <BookOpen className="h-5 w-5 text-primary" />
             <span className="text-sm">

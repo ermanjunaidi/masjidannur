@@ -431,7 +431,7 @@ export default function PublicDisplayPage() {
       {/* ─── HEADER: MASJID INFO & FINANCIAL BADGE ─────────────────────── */}
       <header className={`flex flex-col md:flex-row items-center justify-between gap-4 rounded-2xl px-5 py-3 border ${themeStyles.headerBand || `border-b ${themeStyles.divider}`} pb-4`}>
         {/* Left: Masjid Brand */}
-        <div className="flex items-center gap-4 text-center md:text-left">
+        <div className="flex items-center gap-4 self-start pr-32 text-left md:self-auto md:pr-0">
           <div className={`w-14 h-14 rounded-2xl ${themeStyles.logoBg} flex items-center justify-center ${themeStyles.logoRing}`}>
             <Sparkles className="w-7 h-7 text-white" />
           </div>
@@ -446,8 +446,8 @@ export default function PublicDisplayPage() {
         </div>
 
         {/* Right: Financial Transparency Bar */}
-        <div className="flex items-center gap-2 md:gap-4 overflow-x-auto max-w-full">
-          <div className={`px-4 py-2 rounded-xl border ${themeStyles.card} flex items-center gap-3`}>
+        <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:items-center md:gap-4 md:overflow-x-auto md:max-w-full">
+          <div className={`min-w-0 px-3 md:px-4 py-2 rounded-xl border ${themeStyles.card} flex items-center gap-3`}>
             <div className={`p-2 rounded-lg ${themeStyles.incomeIcon}`}>
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -459,7 +459,7 @@ export default function PublicDisplayPage() {
             </div>
           </div>
 
-          <div className={`px-4 py-2 rounded-xl border ${themeStyles.card} ${themeStyles.financeCard} flex items-center gap-3`}>
+          <div className={`min-w-0 px-3 md:px-4 py-2 rounded-xl border ${themeStyles.card} ${themeStyles.financeCard} flex items-center gap-3`}>
             <div className={`p-2 rounded-lg ${themeStyles.expenseIcon}`}>
               <TrendingDown className="w-4 h-4" />
             </div>
@@ -471,7 +471,7 @@ export default function PublicDisplayPage() {
             </div>
           </div>
 
-          <div className={`px-4 py-2 rounded-xl border ${themeStyles.card} ${themeStyles.financeCard} ${themeStyles.glow} ${themeStyles.cashCard} flex items-center gap-3`}>
+          <div className={`min-w-0 px-3 md:px-4 py-2 rounded-xl border ${themeStyles.card} ${themeStyles.financeCard} ${themeStyles.glow} ${themeStyles.cashCard} col-span-2 flex items-center gap-3`}>
             <div className={`p-2 rounded-lg ${themeStyles.cashIcon}`}>
               <Wallet className="w-4 h-4" />
             </div>

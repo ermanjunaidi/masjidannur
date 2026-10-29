@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -32,10 +33,14 @@ func (s *UserService) ListUsers(_ *ListUsersInput, orgID uint) ([]models.User, e
 	return s.userRepo.FindAll(orgID)
 }
 
-// GetUser returns a single user by ID.
-func (s *UserService) GetUser(id uint) (*models.User, error) {
-	return s.userRepo.FindByID(id)
+// GetUser returns a single user by ID within the actor's organization.
+func (s *UserService) GetUser(id, orgID uint) (*models.User, error) {
+	return s.userRepo.FindByIDInOrg(id, orgID)
 }
+
+// MinPasswordLength is the shortest password accepted anywhere a user
+// sets one (register, reset, change, admin create/update).
+const MinPasswordLength = 8
 
 // PlatformRoleName is the role reserved for platform-level staff. It
 // can never be granted through the tenant admin user-management
@@ -83,8 +88,8 @@ func (s *UserService) CreateUser(input *CreateUserInput, orgID, branchID uint) (
 	if input.Name == "" || input.Email == "" {
 		return nil, errors.New("nama dan email wajib diisi")
 	}
-	if len(input.Password) < 6 {
-		return nil, errors.New("password minimal 6 karakter")
+	if len(input.Password) < MinPasswordLength {
+		return nil, ErrPasswordTooShort
 	}
 	existing, err := s.userRepo.FindByEmail(input.Email)
 	if err != nil {
@@ -137,8 +142,8 @@ type UpdateUserInput struct {
 
 // UpdateUser applies the input to an existing user record.
 // Email uniqueness is checked locally before save to surface 409.
-func (s *UserService) UpdateUser(id uint, input *UpdateUserInput) (*models.User, error) {
-	user, err := s.userRepo.FindByID(id)
+func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*models.User, error) {
+	user, err := s.userRepo.FindByIDInOrg(id, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +169,9 @@ func (s *UserService) UpdateUser(id uint, input *UpdateUserInput) (*models.User,
 		user.IsActive = *input.IsActive
 	}
 	if input.Password != "" {
+		if len(input.Password) < MinPasswordLength {
+			return nil, ErrPasswordTooShort
+		}
 		hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return nil, errors.New("failed to hash password")
@@ -192,7 +200,7 @@ func (s *UserService) DeleteUser(actorID, targetID, orgID uint) error {
 	if targetID == actorID {
 		return ErrSelfDeleteForbidden
 	}
-	user, err := s.userRepo.FindByID(targetID)
+	user, err := s.userRepo.FindByIDInOrg(targetID, orgID)
 	if err != nil {
 		return err
 	}
@@ -205,6 +213,7 @@ func (s *UserService) DeleteUser(actorID, targetID, orgID uint) error {
 // Domain-level errors so the handler layer can map them to status codes
 // without leaking gorm/sql details.
 var (
+	ErrPasswordTooShort   = fmt.Errorf("password minimal %d karakter", MinPasswordLength)
 	ErrUserNotFound       = errors.New("user not found")
 	ErrEmailTaken         = errors.New("email already registered")
 	ErrSelfDeleteForbidden = errors.New("admins cannot delete their own account")

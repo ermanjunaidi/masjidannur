@@ -22,6 +22,8 @@ export interface User {
   name: string
   email: string
   is_active: boolean
+  /** 0 = platform staff (superadmin); otherwise the masjid (tenant) id. */
+  organization_id: number
   roles: Role[]
   created_at: string
   updated_at: string

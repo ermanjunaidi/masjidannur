@@ -101,8 +101,8 @@ export function RolesTable({
           <TableHeader>
             <TableRow>
               <TableHead>Role</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Permissions</TableHead>
+              <TableHead className="hidden md:table-cell">Description</TableHead>
+              <TableHead className="hidden sm:table-cell">Permissions</TableHead>
               <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
@@ -127,15 +127,18 @@ export function RolesTable({
                       <Power className="h-3.5 w-3.5 text-primary" />
                       <span className="font-medium">{role.name}</span>
                     </div>
+                    <p className="mt-1 whitespace-normal text-xs text-muted-foreground md:hidden">
+                      {role.description} · {role.permissions.length} permissions
+                    </p>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
+                  <TableCell className="hidden text-muted-foreground text-sm md:table-cell">
                     {role.description || (
                       <span className="italic text-muted-foreground/60">
                         no description
                       </span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     <div className="flex flex-wrap gap-1">
                       {role.permissions.length === 0 ? (
                         <span className="text-xs text-muted-foreground">
@@ -161,7 +164,7 @@ export function RolesTable({
                   </TableCell>
                   <TableCell>
                     {canWrite && (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         <Button
                           variant="ghost"
                           size="icon-xs"

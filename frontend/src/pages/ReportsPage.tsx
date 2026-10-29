@@ -280,8 +280,8 @@ export default function ReportsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Kategori</TableHead>
-                    <TableHead>Kelompok</TableHead>
-                    <TableHead className="text-right">Transaksi</TableHead>
+                    <TableHead className="hidden sm:table-cell">Kelompok</TableHead>
+                    <TableHead className="hidden text-right sm:table-cell">Transaksi</TableHead>
                     <TableHead className="text-right">Masuk</TableHead>
                     <TableHead className="text-right">Keluar</TableHead>
                   </TableRow>
@@ -290,8 +290,8 @@ export default function ReportsPage() {
                   {catReport.rows.map((r, i) => (
                     <TableRow key={`${r.group}-${r.id}-${i}`}>
                       <TableCell className="font-medium">{r.name || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">{r.group}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.count}</TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">{r.group}</TableCell>
+                      <TableCell className="hidden text-right tabular-nums sm:table-cell">{r.count}</TableCell>
                       <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
                         {r.income ? formatRupiah(r.income) : "—"}
                       </TableCell>
@@ -355,7 +355,7 @@ export default function ReportsPage() {
                     <TableHead>Pekan</TableHead>
                     <TableHead className="text-right">Masuk</TableHead>
                     <TableHead className="text-right">Keluar</TableHead>
-                    <TableHead className="text-right">Selisih</TableHead>
+                    <TableHead className="hidden text-right sm:table-cell">Selisih</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -363,7 +363,7 @@ export default function ReportsPage() {
                     <TableRow key={w.start}>
                       <TableCell>
                         <p className="font-medium">Pekan {i + 1}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="whitespace-normal text-xs text-muted-foreground">
                           {w.start} s/d {w.end}
                         </p>
                       </TableCell>
@@ -374,7 +374,7 @@ export default function ReportsPage() {
                         {formatRupiah(w.expense)}
                       </TableCell>
                       <TableCell
-                        className={`text-right font-semibold tabular-nums ${
+                        className={`hidden text-right font-semibold tabular-nums sm:table-cell ${
                           w.net >= 0
                             ? "text-emerald-600 dark:text-emerald-400"
                             : "text-rose-600 dark:text-rose-400"

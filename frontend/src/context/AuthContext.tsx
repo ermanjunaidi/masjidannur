@@ -34,62 +34,18 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [hydrating, setHydrating] = useState<boolean>(true)
-  const [hydrated, setHydrated] = useState<boolean>(false)
-
-  // ─── Hydrate from localStorage + /api/auth/me probe ────────────────────────
-  // Reading localStorage first keeps the UI snappy on cold load. The /me
-  // probe then guarantees the roles/permissions array mirrors the DB so
-  // admin-side mutations made in another tab become visible without a
-  // manual re-login.
-  useEffect(() => {
-    let cancelled = false
-    const storedToken = tokenStore.get()
-    const storedUser = userStore.get()
-
-    if (!storedToken || !storedUser) {
-      setHydrating(false)
-      setHydrated(true)
-      return
-    }
-    setUser(storedUser)
-    setToken(storedToken)
-    setHydrating(false)
-    setHydrated(true)
-
-    // Probe /me in the background; if it fails (401/expired) we drop the
-    // session so the user is sent back to login on the next navigation.
-    void refreshNow(() => cancelled).then(() => {
-      setHydrated(true)
-    })
-
-    async function refreshNow(isCancelled: () => boolean) {
-      try {
-        const fresh = await authApi.me()
-        if (isCancelled()) return
-        if (fresh && typeof fresh === "object" && "id" in fresh) {
-          const userWithRoles = { ...fresh, roles: fresh.roles ?? [] }
-          setUser(userWithRoles)
-          userStore.set(userWithRoles)
-        } else {
-          clearSession()
-        }
-      } catch (e) {
-        if (isCancelled()) return
-        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-          clearSession()
-        }
-        // For non-auth errors we keep the cached user — backend may be
-        // temporarily down — so the UI remains usable offline-friendly.
-      }
-    }
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // Session is read synchronously from localStorage so the first render
+  // already knows whether the user is logged in.
+  const [user, setUser] = useState<User | null>(() =>
+    tokenStore.get() ? userStore.get() : null,
+  )
+  const [token, setToken] = useState<string | null>(() =>
+    userStore.get() ? tokenStore.get() : null,
+  )
+  // Kept for API compatibility: the session is restored synchronously, so
+  // there is no hydrating phase any more.
+  const hydrating = false
+  const hydrated = true
 
   const setSession = useCallback((t: string, u: User) => {
     setToken(t)
@@ -103,6 +59,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     tokenStore.clear()
     userStore.clear()
+  }, [])
+
+  // ─── Hydrate from localStorage + /api/auth/me probe ────────────────────────
+  // Reading localStorage first keeps the UI snappy on cold load. The /me
+  // probe then guarantees the roles/permissions array mirrors the DB so
+  // admin-side mutations made in another tab become visible without a
+  // manual re-login.
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+
+    // Probe /me in the background; if it fails (401/expired) we drop the
+    // session so the user is sent back to login on the next navigation.
+    authApi
+      .me()
+      .then((fresh) => {
+        if (cancelled) return
+        if (fresh && typeof fresh === "object" && "id" in fresh) {
+          const userWithRoles = { ...fresh, roles: fresh.roles ?? [] }
+          setUser(userWithRoles)
+          userStore.set(userWithRoles)
+        } else {
+          clearSession()
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          clearSession()
+        }
+        // For non-auth errors we keep the cached user — backend may be
+        // temporarily down — so the UI remains usable offline-friendly.
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // Only on mount: later logins already carry a fresh user record.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const hasPermission = useCallback(

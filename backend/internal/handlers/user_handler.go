@@ -63,7 +63,8 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 			"error": "invalid user id",
 		})
 	}
-	user, err := h.userService.GetUser(uint(id))
+	orgID, _ := middleware.ActorOrgID(c)
+	user, err := h.userService.GetUser(uint(id), orgID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -92,18 +93,16 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		})
 	}
 
-	// Treat password == "" as "do not change existing hash".
-	if input.Password == "" {
-		input.Password = ""
-	}
-
-	user, err := h.userService.UpdateUser(uint(id), &input)
+	orgID, _ := middleware.ActorOrgID(c)
+	user, err := h.userService.UpdateUser(uint(id), orgID, &input)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrUserNotFound):
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 		case errors.Is(err, service.ErrEmailTaken):
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
+		case errors.Is(err, service.ErrPasswordTooShort):
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		default:
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}

@@ -4,7 +4,7 @@
 //   - maxFraction: jumlah digit desimal (0 = integer, 2 = dua desimal)
 //   - support cursor positioning agar tidak lompat.
 
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { Input } from "./input"
 
 interface Props {
@@ -27,16 +27,6 @@ export function NumberInput({
   disabled,
 }: Props) {
   const ref = useRef<HTMLInputElement>(null)
-  const [text, setText] = useState("")
-
-  // Sync external value → display text
-  useEffect(() => {
-    setText(n => {
-      const parsed = parseIdNumber(n)
-      if (parsed === value) return n // user mid-edit (controlled)
-      return value === 0 ? "" : fmt(value)
-    })
-  }, [value])
 
   const fmt = (n: number): string => {
     if (n === 0) return ""
@@ -44,6 +34,17 @@ export function NumberInput({
       maximumFractionDigits: maxFraction,
       minimumFractionDigits: 0,
     })
+  }
+
+  const [text, setText] = useState(() => fmt(value))
+
+  // Sync external value → display text (adjusted during render, not in an
+  // effect, so there is no extra render with stale text).
+  const [prevValue, setPrevValue] = useState(value)
+  if (value !== prevValue) {
+    setPrevValue(value)
+    // Keep the user's text while mid-edit (it already parses to value).
+    if (parseIdNumber(text) !== value) setText(fmt(value))
   }
   const parse = (s: string): number => {
     const norm = s.replace(/\./g, "").replace(",", ".")

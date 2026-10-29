@@ -41,7 +41,14 @@ func newOAuthStateStore() *oauthStateStore {
 func (s *oauthStateStore) put(state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.valid[state] = time.Now().Add(10 * time.Minute)
+	// Drop expired states so repeated /google hits cannot grow the map forever.
+	now := time.Now()
+	for k, exp := range s.valid {
+		if now.After(exp) {
+			delete(s.valid, k)
+		}
+	}
+	s.valid[state] = now.Add(10 * time.Minute)
 }
 
 func (s *oauthStateStore) consume(state string) bool {
@@ -230,7 +237,7 @@ func (h *AuthHandler) GoogleAuth(c *fiber.Ctx) error {
 func (h *AuthHandler) GoogleCallback(c *fiber.Ctx) error {
 	state := c.Query("state")
 	code := c.Query("code")
-	if code == "" {
+	if code == "" || state == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "kode oauth kosong"})
 	}
 	// Validasi state: cek in-memory store dulu, fallback ke cookie.
