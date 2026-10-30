@@ -146,7 +146,11 @@ func main() {
 		log.Fatalf("Failed to bootstrap RBAC: %v", err)
 	}
 
-	if err := seedDevelopmentUsers(db, userRepo, roleRepo, env.AppEnv == "production"); err != nil {
+	if env.AppEnv == "production" {
+		if err := seedProductionSuperAdmin(db, userRepo, roleRepo); err != nil {
+			log.Fatalf("Failed to seed superadmin: %v", err)
+		}
+	} else if err := seedDevelopmentUsers(db, userRepo, roleRepo); err != nil {
 		log.Fatalf("Failed to seed default users: %v", err)
 	}
 
@@ -365,33 +369,150 @@ func bootstrapRBAC(
 	return nil
 }
 
-// seedDevelopmentUsers keeps the demo accounts in sync on every boot.
-//
-// In production the well-known default passwords would hand anyone the
-// superadmin account, so there an account is only created when its
-// SEED_*_PASSWORD env var is set, and existing accounts are never touched
-// (no password reset on restart).
-func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, roleRepo *repository.RoleRepository, production bool) error {
-	seedPassword := func(envKey, devDefault string) string {
-		if v := os.Getenv(envKey); v != "" {
-			return v
+const superAdminEmail = "superadmin@example.com"
+
+type seedUser struct {
+	Name     string
+	Email    string
+	Password string
+	RoleName string
+}
+
+// defaultSeedUsers returns the development fixtures with their hard-coded
+// default passwords (no env overrides) — the list production uses to spot
+// accounts still guessable from the public source.
+func defaultSeedUsers() []seedUser {
+	return []seedUser{
+		{Name: "Super Admin", Email: superAdminEmail, Password: "superadmin123", RoleName: "superadmin"},
+		{Name: "Admin Masjid", Email: "admin@example.com", Password: "admin123", RoleName: "admin"},
+		{Name: "Bendahara", Email: "bendahara@example.com", Password: "bendahara123", RoleName: "bendahara"},
+		{Name: "Demo User", Email: "user@example.com", Password: "user123", RoleName: "user"},
+	}
+}
+
+// seedProductionSuperAdmin never creates demo accounts and never resets a
+// password changed in the app:
+//   - an account still using its public default fixture password is locked
+//     down: the superadmin is rotated to SEED_SUPERADMIN_PASSWORD when set,
+//     every other account is deactivated;
+//   - a superadmin (organization 0) is created only when
+//     SEED_SUPERADMIN_PASSWORD is set and no user with SEED_SUPERADMIN_EMAIL
+//     (default superadmin@example.com) exists yet.
+func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, roleRepo *repository.RoleRepository) error {
+	superAdminPass := os.Getenv("SEED_SUPERADMIN_PASSWORD")
+	hashSuperAdminPass := func() (string, error) {
+		if len(superAdminPass) < 12 {
+			return "", fmt.Errorf("SEED_SUPERADMIN_PASSWORD must be at least 12 characters")
 		}
-		if production {
-			return ""
-		}
-		return devDefault
+		hashed, err := bcrypt.GenerateFromPassword([]byte(superAdminPass), bcrypt.DefaultCost)
+		return string(hashed), err
 	}
 
-	users := []struct {
-		Name     string
-		Email    string
-		Password string
-		RoleName string
-	}{
-		{Name: "Super Admin", Email: "superadmin@example.com", Password: seedPassword("SEED_SUPERADMIN_PASSWORD", "superadmin123"), RoleName: "superadmin"},
-		{Name: "Admin Masjid", Email: "admin@example.com", Password: seedPassword("SEED_ADMIN_PASSWORD", "admin123"), RoleName: "admin"},
-		{Name: "Bendahara", Email: "bendahara@example.com", Password: seedPassword("SEED_BENDAHARA_PASSWORD", "bendahara123"), RoleName: "bendahara"},
-		{Name: "Demo User", Email: "user@example.com", Password: seedPassword("SEED_USER_PASSWORD", "user123"), RoleName: "user"},
+	for _, seed := range defaultSeedUsers() {
+		user, err := userRepo.FindByEmail(seed.Email)
+		if err != nil {
+			return err
+		}
+		if user == nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(seed.Password)) != nil {
+			continue
+		}
+		// Superadmin with a known password: rotate when a new one is
+		// configured, otherwise deactivate. Demo accounts: deactivate.
+		if seed.RoleName == "superadmin" && superAdminPass != "" {
+			hashed, err := hashSuperAdminPass()
+			if err != nil {
+				return err
+			}
+			// Reactivate too: an earlier boot without the env var may have
+			// deactivated it, and supplying a new password is the operator's
+			// explicit way to restore access.
+			user.Password = hashed
+			user.IsActive = true
+			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user)); err != nil {
+				return err
+			}
+			log.Printf("[seed] %s still had the default password; rotated to SEED_SUPERADMIN_PASSWORD and activated", seed.Email)
+			continue
+		}
+		if user.IsActive {
+			user.IsActive = false
+			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user)); err != nil {
+				return err
+			}
+			log.Printf("[seed] WARNING: %s still had its default password and has been deactivated", seed.Email)
+		}
+	}
+
+	email := strings.ToLower(strings.TrimSpace(os.Getenv("SEED_SUPERADMIN_EMAIL")))
+	if email == "" {
+		email = superAdminEmail
+	}
+	if superAdminPass != "" {
+		existing, err := userRepo.FindByEmail(email)
+		if err != nil {
+			return err
+		}
+		if existing == nil {
+			role, err := roleRepo.FindByName("superadmin")
+			if err != nil {
+				return err
+			}
+			if role == nil {
+				return fmt.Errorf("seed role %q not found in catalog", "superadmin")
+			}
+			hashed, err := hashSuperAdminPass()
+			if err != nil {
+				return err
+			}
+			if err := userRepo.CreateWithRoles(&models.User{
+				Name:           "Super Admin",
+				Email:          email,
+				Password:       hashed,
+				IsActive:       true,
+				OrganizationID: 0,
+			}, []uint{role.ID}); err != nil {
+				return err
+			}
+			log.Printf("[seed] superadmin %s created", email)
+		}
+	}
+
+	var activeSuperadmins int64
+	if err := db.Table("users").
+		Joins("JOIN user_roles ur ON ur.user_id = users.id").
+		Joins("JOIN roles r ON r.id = ur.role_id").
+		Where("r.name = ? AND users.is_active AND users.deleted_at IS NULL", "superadmin").
+		Count(&activeSuperadmins).Error; err != nil {
+		return err
+	}
+	if activeSuperadmins == 0 {
+		log.Printf("[seed] WARNING: no active superadmin. Set SEED_SUPERADMIN_PASSWORD (min 12 chars; optional SEED_SUPERADMIN_EMAIL, default %s) and restart to create one.", superAdminEmail)
+	}
+	return nil
+}
+
+func roleIDsOf(user *models.User) []uint {
+	ids := make([]uint, 0, len(user.Roles))
+	for _, r := range user.Roles {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// seedDevelopmentUsers keeps the demo accounts in sync on every boot
+// (development only; production uses seedProductionSuperAdmin).
+func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, roleRepo *repository.RoleRepository) error {
+	users := defaultSeedUsers()
+	envOverrides := map[string]string{
+		"superadmin": os.Getenv("SEED_SUPERADMIN_PASSWORD"),
+		"admin":      os.Getenv("SEED_ADMIN_PASSWORD"),
+		"bendahara":  os.Getenv("SEED_BENDAHARA_PASSWORD"),
+		"user":       os.Getenv("SEED_USER_PASSWORD"),
+	}
+	for i := range users {
+		if pass := envOverrides[users[i].RoleName]; pass != "" {
+			users[i].Password = pass
+		}
 	}
 
 	// Non-superadmin seed users belong to a demo organization so tenant
@@ -403,9 +524,6 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 	}
 
 	for _, seed := range users {
-		if seed.Password == "" {
-			continue
-		}
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(seed.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return err
@@ -443,9 +561,6 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 			continue
 		}
 
-		if production {
-			continue
-		}
 		user.Name = seed.Name
 		user.Password = string(hashedPassword)
 		user.IsActive = true
