@@ -390,14 +390,16 @@ func defaultSeedUsers() []seedUser {
 	}
 }
 
-// seedProductionSuperAdmin never creates demo accounts and never resets a
-// password changed in the app:
+// seedProductionSuperAdmin never creates demo accounts:
 //   - an account still using its public default fixture password is locked
 //     down: the superadmin is rotated to SEED_SUPERADMIN_PASSWORD when set,
 //     every other account is deactivated;
-//   - a superadmin (organization 0) is created only when
-//     SEED_SUPERADMIN_PASSWORD is set and no user with SEED_SUPERADMIN_EMAIL
-//     (default superadmin@example.com) exists yet.
+//   - when SEED_SUPERADMIN_PASSWORD is set, the superadmin
+//     SEED_SUPERADMIN_EMAIL (default superadmin@example.com) is created in
+//     organization 0, or — if it already exists — its password is reset to
+//     the env value and it is activated, so env is the source of truth for
+//     that one account (a password changed in the app is overwritten on the
+//     next boot). Other accounts' passwords are never touched.
 func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, roleRepo *repository.RoleRepository) error {
 	superAdminPass := os.Getenv("SEED_SUPERADMIN_PASSWORD")
 	hashSuperAdminPass := func() (string, error) {
@@ -474,6 +476,19 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 				return err
 			}
 			log.Printf("[seed] superadmin %s created", email)
+		} else if !hasRole(existing, "superadmin") {
+			log.Printf("[seed] WARNING: %s exists but is not a superadmin; SEED_SUPERADMIN_PASSWORD not applied", email)
+		} else if !existing.IsActive || bcrypt.CompareHashAndPassword([]byte(existing.Password), []byte(superAdminPass)) != nil {
+			hashed, err := hashSuperAdminPass()
+			if err != nil {
+				return err
+			}
+			existing.Password = hashed
+			existing.IsActive = true
+			if err := userRepo.UpdateWithRoles(existing, roleIDsOf(existing)); err != nil {
+				return err
+			}
+			log.Printf("[seed] superadmin %s synced to SEED_SUPERADMIN_PASSWORD and activated", email)
 		}
 	}
 
@@ -489,6 +504,15 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 		log.Printf("[seed] WARNING: no active superadmin. Set SEED_SUPERADMIN_PASSWORD (min 12 chars; optional SEED_SUPERADMIN_EMAIL, default %s) and restart to create one.", superAdminEmail)
 	}
 	return nil
+}
+
+func hasRole(user *models.User, name string) bool {
+	for _, r := range user.Roles {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func roleIDsOf(user *models.User) []uint {
