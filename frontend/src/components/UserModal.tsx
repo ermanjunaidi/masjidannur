@@ -168,6 +168,7 @@ export function ModalShell({
 
 import { usersApi, ApiError, type InviteResult } from "@/lib/api"
 import type { Role, User } from "@/lib/types"
+import { useAuth } from "@/context/AuthContext"
 
 interface UserModalProps {
   open: boolean
@@ -199,6 +200,19 @@ export function UserModal({
   // Set after create / resend when the invite link must be shared manually.
   const [invite, setInvite] = useState<InviteResult | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  // Aturan user (dicek ulang di backend): role wajib, tidak boleh memberi
+  // role yang hak aksesnya melebihi milik sendiri, dan tidak boleh
+  // mengubah role / menonaktifkan akun sendiri. Superadmin platform bebas.
+  const { user: actor } = useAuth()
+  const isPlatform =
+    !!actor && (actor.organization_id ?? 0) === 0 && (actor.roles?.some((r) => r.name === "superadmin") ?? false)
+  const actorPerms = new Set(
+    (actor?.roles ?? []).flatMap((r) => (r.permissions ?? []).map((p) => p.key)),
+  )
+  const isSelf = mode === "edit" && !!initialUser && initialUser.id === actor?.id
+  const roleExceedsActor = (role: Role) =>
+    !isPlatform && (role.permissions ?? []).some((p) => !actorPerms.has(p.key))
 
   // Reset form state every time the modal opens with a different target.
   useEffect(() => {
@@ -247,6 +261,10 @@ export function UserModal({
     setError(null)
     if (!name.trim() || !email.trim()) {
       setError("Name and email are required")
+      return
+    }
+    if (selectedRoleIDs.length === 0) {
+      setError("Pilih minimal satu role")
       return
     }
     setSaving(true)
@@ -429,7 +447,12 @@ export function UserModal({
       )}
 
       <div className="space-y-2">
-        <Label>Roles</Label>
+        <Label>Roles <span className="text-destructive">*</span></Label>
+        {isSelf && (
+          <p className="text-xs text-muted-foreground">
+            Role akun Anda sendiri tidak bisa diubah. Minta admin lain bila perlu.
+          </p>
+        )}
         {availableRoles.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No roles defined yet. Create roles from the Roles tab first.
@@ -438,10 +461,21 @@ export function UserModal({
           <div className="flex flex-wrap gap-2 rounded-lg border p-3 bg-muted/30">
             {availableRoles.map((role) => {
               const checked = selectedRoleIDs.includes(role.id)
+              const exceeds = roleExceedsActor(role)
+              const locked = isSelf || (exceeds && !checked)
               return (
                 <label
                   key={role.id}
-                  className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs cursor-pointer transition-colors ${
+                  title={
+                    isSelf
+                      ? "Role akun sendiri tidak bisa diubah"
+                      : exceeds
+                      ? "Hak akses role ini melebihi hak akses Anda"
+                      : undefined
+                  }
+                  className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                    locked ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                  } ${
                     checked
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-background hover:bg-muted"
@@ -451,6 +485,7 @@ export function UserModal({
                     type="checkbox"
                     className="sr-only"
                     checked={checked}
+                    disabled={locked}
                     onChange={() => toggleRole(role.id)}
                   />
                   <span className="font-medium">{role.name}</span>
@@ -476,11 +511,12 @@ export function UserModal({
             id="user-active"
             type="checkbox"
             checked={isActive}
+            disabled={isSelf}
             onChange={(e) => setIsActive(e.target.checked)}
             className="h-4 w-4 rounded border"
           />
-          <Label htmlFor="user-active" className="cursor-pointer">
-            Account is active
+          <Label htmlFor="user-active" className={isSelf ? "text-muted-foreground" : "cursor-pointer"}>
+            Account is active{isSelf && " (akun sendiri tidak bisa dinonaktifkan)"}
           </Label>
         </div>
       )}

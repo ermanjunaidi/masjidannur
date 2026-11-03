@@ -58,7 +58,8 @@ type InviteResult struct {
 // and an account in another organization is never moved (that would hand
 // over someone else's workspace). branchID is the actor's book/branch scope,
 // inherited by the new account.
-func (s *UserService) CreateUser(orgID, branchID uint, input *CreateUserInput) (*InviteResult, error) {
+func (s *UserService) CreateUser(actor Actor, branchID uint, input *CreateUserInput) (*InviteResult, error) {
+	orgID := actor.OrgID
 	input.Name = strings.TrimSpace(input.Name)
 	input.Email = NormalizeEmail(input.Email)
 	if input.Name == "" || input.Email == "" {
@@ -82,6 +83,20 @@ func (s *UserService) CreateUser(orgID, branchID uint, input *CreateUserInput) (
 			return nil, ErrEmailInOtherOrg
 		}
 	}
+
+	// Aturan role: minimal satu, harus ada, dan tidak melebihi hak akses
+	// si pembuat (dicek sebelum menyentuh database).
+	if len(input.RoleIDs) == 0 {
+		return nil, ErrRoleRequired
+	}
+	roles, err := s.resolveRoles(input.RoleIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkAssignable(actor, roles); err != nil {
+		return nil, err
+	}
+	input.RoleIDs = roleIDsOf(roles)
 
 	hashed, err := UnusablePasswordHash()
 	if err != nil {
@@ -112,13 +127,16 @@ func (s *UserService) CreateUser(orgID, branchID uint, input *CreateUserInput) (
 
 // ResendInvite issues a fresh invite link for a user who has not set a
 // password yet. Accounts that already have one use "lupa password".
-func (s *UserService) ResendInvite(id, orgID uint) (*InviteResult, error) {
-	user, err := s.userRepo.FindByIDInOrg(id, orgID)
+func (s *UserService) ResendInvite(actor Actor, id uint) (*InviteResult, error) {
+	user, err := s.userRepo.FindByIDInOrg(id, actor.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
 		return nil, ErrUserNotFound
+	}
+	if err := s.checkTarget(actor, user); err != nil {
+		return nil, err
 	}
 	if !user.NoPassword {
 		return nil, ErrAlreadyActivated
@@ -209,13 +227,42 @@ type UpdateUserInput struct {
 // UpdateUser applies the input to an existing user record in the actor's
 // organization (orgID=0 → any user). Email uniqueness is checked locally
 // before save to surface 409.
-func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*models.User, error) {
-	user, err := s.userRepo.FindByIDInOrg(id, orgID)
+//
+// RoleIDs absent (nil) keeps the current roles; an explicit empty list is
+// rejected because every user must hold at least one role.
+func (s *UserService) UpdateUser(actor Actor, id uint, input *UpdateUserInput) (*models.User, error) {
+	user, err := s.userRepo.FindByIDInOrg(id, actor.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
 		return nil, ErrUserNotFound
+	}
+	if err := s.checkTarget(actor, user); err != nil {
+		return nil, err
+	}
+	self := user.ID == actor.ID
+
+	if input.RoleIDs == nil {
+		input.RoleIDs = roleIDsOf(user.Roles)
+	} else {
+		if len(input.RoleIDs) == 0 {
+			return nil, ErrRoleRequired
+		}
+		roles, err := s.resolveRoles(input.RoleIDs)
+		if err != nil {
+			return nil, err
+		}
+		input.RoleIDs = roleIDsOf(roles)
+		if self && !sameIDs(input.RoleIDs, roleIDsOf(user.Roles)) {
+			return nil, ErrSelfRoleChange
+		}
+		if err := s.checkAssignable(actor, roles); err != nil {
+			return nil, err
+		}
+	}
+	if self && input.IsActive != nil && !*input.IsActive {
+		return nil, ErrSelfDeactivate
 	}
 	if err := s.checkPlatformRole(user, input.RoleIDs); err != nil {
 		return nil, err
@@ -265,21 +312,148 @@ func (s *UserService) UpdateUser(id, orgID uint, input *UpdateUserInput) (*model
 
 // DeleteUser removes the user with the given ID. Self-delete is blocked
 // to avoid an admin accidentally locking themselves out of the dashboard.
-func (s *UserService) DeleteUser(actorID, targetID, orgID uint) error {
+func (s *UserService) DeleteUser(actor Actor, targetID uint) error {
 	if targetID == 0 {
 		return ErrUserNotFound
 	}
-	if targetID == actorID {
+	if targetID == actor.ID {
 		return ErrSelfDeleteForbidden
 	}
-	user, err := s.userRepo.FindByIDInOrg(targetID, orgID)
+	user, err := s.userRepo.FindByIDInOrg(targetID, actor.OrgID)
 	if err != nil {
 		return err
 	}
 	if user == nil {
 		return ErrUserNotFound
 	}
-	return s.userRepo.Delete(targetID, orgID)
+	if err := s.checkTarget(actor, user); err != nil {
+		return err
+	}
+	return s.userRepo.Delete(targetID, actor.OrgID)
+}
+
+// Actor identifies who is calling the /api/users endpoints.
+type Actor struct {
+	ID    uint
+	OrgID uint
+}
+
+// actorAccess loads the actor's current permissions from the database
+// (not the JWT, which may be stale after a role change). platform is
+// true for the platform superadmin, who bypasses the hierarchy rules.
+func (s *UserService) actorAccess(actor Actor) (perms map[string]bool, platform bool, err error) {
+	u, err := s.userRepo.FindByID(actor.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if u == nil || !u.IsActive {
+		return nil, false, ErrActorUnknown
+	}
+	for _, r := range u.Roles {
+		if r.Name == platformRoleName && u.OrganizationID == 0 {
+			platform = true
+		}
+	}
+	return permissionSet(u.Roles), platform, nil
+}
+
+// checkAssignable: a non-platform actor may only grant roles whose every
+// permission they hold themselves (no privilege escalation).
+func (s *UserService) checkAssignable(actor Actor, roles []models.Role) error {
+	perms, platform, err := s.actorAccess(actor)
+	if err != nil || platform {
+		return err
+	}
+	for _, r := range roles {
+		if r.Name == platformRoleName {
+			return ErrPlatformRoleForbidden
+		}
+		for _, p := range r.Permissions {
+			if !perms[p.Key] {
+				return fmt.Errorf("%w (role %q)", ErrRoleEscalation, r.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// checkTarget: a non-platform actor may only manage users whose access
+// does not exceed their own. Acting on yourself is always allowed here
+// (self-specific limits are enforced by the callers).
+func (s *UserService) checkTarget(actor Actor, target *models.User) error {
+	if target.ID == actor.ID {
+		return nil
+	}
+	perms, platform, err := s.actorAccess(actor)
+	if err != nil || platform {
+		return err
+	}
+	for _, r := range target.Roles {
+		if r.Name == platformRoleName {
+			return ErrTargetOutranks
+		}
+	}
+	for key := range permissionSet(target.Roles) {
+		if !perms[key] {
+			return ErrTargetOutranks
+		}
+	}
+	return nil
+}
+
+// resolveRoles loads the requested roles (deduplicated); unknown IDs fail.
+func (s *UserService) resolveRoles(ids []uint) ([]models.Role, error) {
+	seen := map[uint]bool{}
+	roles := make([]models.Role, 0, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		role, err := s.roleRepo.FindByID(id)
+		if err != nil {
+			return nil, err
+		}
+		if role == nil {
+			return nil, ErrRoleInvalid
+		}
+		roles = append(roles, *role)
+	}
+	return roles, nil
+}
+
+func permissionSet(roles []models.Role) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range roles {
+		for _, p := range r.Permissions {
+			out[p.Key] = true
+		}
+	}
+	return out
+}
+
+func roleIDsOf(roles []models.Role) []uint {
+	out := make([]uint, len(roles))
+	for i, r := range roles {
+		out[i] = r.ID
+	}
+	return out
+}
+
+func sameIDs(a, b []uint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := map[uint]bool{}
+	for _, id := range a {
+		set[id] = true
+	}
+	for _, id := range b {
+		if !set[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // checkPlatformRole keeps the superadmin role off tenant accounts. Only
@@ -317,6 +491,13 @@ var (
 	ErrEmailInOtherOrg       = errors.New("email ini sudah terdaftar di organisasi lain (mis. daftar sendiri via google); satu email hanya bisa dipakai satu organisasi")
 	ErrEmailDeleted          = errors.New("email ini milik user yang sudah dihapus dan belum bisa dipakai lagi")
 	ErrAlreadyActivated      = errors.New("user sudah mengaktifkan akun; gunakan \"lupa password\" untuk reset")
+	ErrRoleRequired          = errors.New("pilih minimal satu role untuk user")
+	ErrRoleInvalid           = errors.New("role yang dipilih tidak ditemukan")
+	ErrRoleEscalation        = errors.New("tidak bisa memberi role dengan hak akses melebihi hak akses Anda sendiri")
+	ErrTargetOutranks        = errors.New("tidak bisa mengelola user yang hak aksesnya melebihi hak akses Anda")
+	ErrSelfRoleChange        = errors.New("tidak bisa mengubah role akun Anda sendiri; minta admin lain")
+	ErrSelfDeactivate        = errors.New("tidak bisa menonaktifkan akun Anda sendiri")
+	ErrActorUnknown          = errors.New("akun Anda tidak ditemukan atau nonaktif; silakan login ulang")
 )
 
 // platformRoleName mirrors middleware.PlatformRoleName (service must not
