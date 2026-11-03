@@ -10,6 +10,7 @@ import ResetPasswordPage from "@/pages/ResetPasswordPage"
 import AdminDashboard from "@/pages/AdminDashboard"
 import AdminUsers from "@/pages/AdminUsers"
 import SettingsPage from "@/pages/SettingsPage"
+import BackupPage from "@/pages/BackupPage"
 import SecurityPage from "@/pages/SecurityPage"
 import BooksPage from "@/pages/BooksPage"
 import CategoriesPage from "@/pages/CategoriesPage"
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="users" element={<AdminUsers />} />
             <Route path="security" element={<SecurityPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="backup" element={<BackupPage />} />
           </Route>
         </Routes>
       </AuthProvider>

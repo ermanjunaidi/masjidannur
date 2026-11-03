@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Moon,
   Tv,
+  DatabaseBackup,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
@@ -24,6 +25,8 @@ interface NavItem {
   label: string
   href: string
   permission?: string
+  /** Only the platform superadmin (organization 0). */
+  platformOnly?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -39,6 +42,7 @@ const navItems: NavItem[] = [
   { icon: Users, label: "Users & Roles", href: "/admin/users", permission: "users:read" },
   { icon: Moon, label: "Security", href: "/admin/security" },
   { icon: Settings, label: "Settings", href: "/admin/settings", permission: "settings:read" },
+  { icon: DatabaseBackup, label: "Backup & Restore", href: "/admin/backup", platformOnly: true },
 ]
 
 // `mobile` renders the sidebar inside the mobile drawer: always expanded,
@@ -46,6 +50,8 @@ const navItems: NavItem[] = [
 export default function AdminSidebar({ mobile = false }: { mobile?: boolean }) {
   const { pathname } = useLocation()
   const { logout, user, hasPermission } = useAuth()
+  const isPlatformAdmin =
+    !!user && (user.organization_id ?? 0) === 0 && (user.roles?.some((r) => r.name === "superadmin") ?? false)
   const [collapsedState, setCollapsed] = useState(false)
   const collapsed = !mobile && collapsedState
 
@@ -95,6 +101,9 @@ export default function AdminSidebar({ mobile = false }: { mobile?: boolean }) {
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {navItems.map((item) => {
           if (item.permission && !hasPermission(item.permission)) {
+            return null
+          }
+          if (item.platformOnly && !isPlatformAdmin) {
             return null
           }
           const isActive = pathname === item.href

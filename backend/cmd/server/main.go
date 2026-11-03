@@ -17,11 +17,13 @@ import (
 	"gorm.io/gorm"
 
 	"backend/config"
+	"backend/internal/backup"
 	"backend/internal/handlers"
 	"backend/internal/models"
 	"backend/internal/repository"
 	"backend/internal/routes"
 	"backend/internal/service"
+	"backend/pkg/middleware"
 )
 
 var defaultPermissionCatalog = []models.Permission{
@@ -204,6 +206,8 @@ func main() {
 	app := fiber.New(fiber.Config{
 		AppName:      "Buku Masjid API",
 		ServerHeader: "BukuMasjid",
+		// Room for database backup uploads (POST /api/backup/import).
+		BodyLimit: backup.MaxUploadBytes + (1 << 20),
 	})
 
 	app.Use(recover.New())
@@ -241,7 +245,7 @@ func main() {
 		AllowMethods:     "GET,POST,HEAD,PUT,PATCH,DELETE,OPTIONS",
 		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Requested-With",
 		AllowCredentials: false,
-		ExposeHeaders:    "Content-Length",
+		ExposeHeaders:    "Content-Length, Content-Disposition",
 		MaxAge:           600,
 	}))
 
@@ -269,6 +273,20 @@ func main() {
 		publicDisplayHandler,
 		env.JWTSecret,
 	)
+
+	// ─── Backup: export / import database + uploads (superadmin only) ────
+	backupService := backup.NewService(db, "masjidannur", "uploads", "backups", func() error {
+		// A restore replaces users/roles too: re-apply the RBAC catalog and
+		// the env superadmin so the operator can always log back in.
+		if err := bootstrapRBAC(permissionRepo, roleRepo); err != nil {
+			return err
+		}
+		if env.AppEnv == "production" {
+			return seedProductionSuperAdmin(db, userRepo, roleRepo)
+		}
+		return nil
+	})
+	backup.RegisterRoutes(app.Group("/api/backup", middleware.RequireAuth(func() string { return env.JWTSecret })), backupService)
 
 	addr := fmt.Sprintf(":%s", env.AppPort)
 	log.Printf("[server] Starting on %s (env=%s)", addr, env.AppEnv)

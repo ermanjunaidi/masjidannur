@@ -36,3 +36,6 @@ __pycache__/
 *.pyc
 build/
 dist/
+
+# ─── Backup database (snapshot di server) ─────────────────────────────────────
+backups/
