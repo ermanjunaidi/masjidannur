@@ -67,6 +67,28 @@ export default defineConfig(({ mode }) => {
       // allowedHosts: izinkan akses via Traefik (Host header = domain publik).
       // Vite 8 blokir Host non-localhost secara default ("Blocked request").
       allowedHosts,
+      // Dev server ini terekspos ke publik (lihat di atas), dan Vite melayani
+      // file apa pun di root project. Bot scanner yang meminta /Dockerfile
+      // memicu error "Failed to parse source for import analysis" (file tanpa
+      // ekstensi dianggap modul JS). Tolak file non-aplikasi. List ini
+      // MENGGANTI default Vite, jadi default (.env, cert, .git) ditulis ulang.
+      fs: {
+        deny: [
+          ".env",
+          ".env.*",
+          "*.{crt,pem,key}",
+          "**/.git/**",
+          "Dockerfile*",
+          "nginx.conf",
+          "*.md",
+          "package.json",
+          "package-lock.json",
+          "tsconfig*.json",
+          "components.json",
+          "vite.config.*",
+          "eslint.config.*",
+        ],
+      },
       // NOTE: bind host 0.0.0.0 dipakai saat FE jalan di dalam Docker
       // container (production dev-server mode). Flag `--host 0.0.0.0` sudah
       // di-pass via compose command (`npm run dev -- --host 0.0.0.0`) — jadi
