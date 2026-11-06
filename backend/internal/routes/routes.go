@@ -83,6 +83,7 @@ func SetupRoutes(
 	reports.Get("/monthly", middleware.RequirePermission("reports:read"), transactionHandler.MonthlyReport)
 	reports.Get("/category", middleware.RequirePermission("reports:read"), transactionHandler.CategoryReport)
 	reports.Get("/weekly", middleware.RequirePermission("reports:read"), transactionHandler.WeeklyReport)
+	reports.Get("/period", middleware.RequirePermission("reports:read"), transactionHandler.PeriodReport)
 
 	// ─── Jadwal Pengajian & Khatib ─────────────────────────────────
 	lecturings := api.Group("/lecturings", middleware.RequireAuth(resolver))

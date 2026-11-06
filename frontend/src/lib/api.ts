@@ -17,6 +17,7 @@ import type {
   MonthlyReport,
   CategoryReportResponse,
   WeeklyReport,
+  PeriodReport,
   Lecturing,
   LecturingAudience,
   PublicDisplayData,
@@ -322,6 +323,10 @@ export const reportsApi = {
     const qs = new URLSearchParams({ from, to })
     if (bookId) qs.set("book_id", String(bookId))
     return apiRequest<WeeklyReport>(`/api/reports/weekly?${qs.toString()}`)
+  },
+  period: (from: string, to: string) => {
+    const qs = new URLSearchParams({ from, to })
+    return apiRequest<PeriodReport>(`/api/reports/period?${qs.toString()}`)
   },
 }
 

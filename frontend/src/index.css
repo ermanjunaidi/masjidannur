@@ -128,3 +128,27 @@
     @apply font-sans;
     }
 }
+/* Cetak Laporan Periode: hanya lembar laporan yang ikut tercetak. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #period-print,
+  #period-print * {
+    visibility: visible;
+  }
+  #period-print {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

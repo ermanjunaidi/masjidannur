@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -657,6 +658,103 @@ func (s *TransactionService) WeeklyReport(orgID, branchID, bookID uint, from, to
 	}
 	totals.Net = totals.Income - totals.Expense
 	return &WeeklyReport{From: from, To: to, Weeks: weeks, Totals: totals}, nil
+}
+
+// PeriodReport is the "laporan keuangan periode" — one section per book
+// with saldo awal, kas masuk/keluar rows and saldo akhir for an arbitrary
+// date range (e.g. Jumat s.d. Jumat), plus the grand total across books.
+type PeriodReport struct {
+	From   string       `json:"from"`
+	To     string       `json:"to"`
+	Books  []PeriodBook `json:"books"`
+	Totals PeriodTotals `json:"totals"`
+}
+
+// PeriodTotals sums one book (or all books) over the period.
+type PeriodTotals struct {
+	Opening float64 `json:"opening"`
+	Income  float64 `json:"income"`
+	Expense float64 `json:"expense"`
+	Closing float64 `json:"closing"`
+}
+
+// PeriodBook is one book's section in the period report.
+type PeriodBook struct {
+	BookID   uint          `json:"book_id"`
+	Name     string        `json:"name"`
+	Totals   PeriodTotals  `json:"totals"`
+	Incomes  []LedgerEntry `json:"incomes"`
+	Expenses []LedgerEntry `json:"expenses"`
+}
+
+// PeriodReport builds the per-book period report. Opening balance is the
+// cumulative net of every transaction dated before `from`.
+func (s *TransactionService) PeriodReport(orgID, branchID uint, from, to string) (*PeriodReport, error) {
+	if !isValidDate(from) || !isValidDate(to) {
+		return nil, ErrInvalidDate
+	}
+	if to < from {
+		return nil, errors.New("tanggal akhir sebelum tanggal awal")
+	}
+	books, err := s.bookRepo.FindAll(orgID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	// Urut sesuai urutan dibuat (buku utama biasanya dibuat pertama).
+	sort.Slice(books, func(i, j int) bool { return books[i].ID < books[j].ID })
+	beforeFrom := monthEndPrev(from) // = from - 1 hari
+	report := &PeriodReport{From: from, To: to, Books: make([]PeriodBook, 0, len(books))}
+	for _, b := range books {
+		openIn, openOut, err := s.repo.SumByType(orgID, branchID, b.ID, "", beforeFrom)
+		if err != nil {
+			return nil, err
+		}
+		txs, err := s.repo.List(orgID, branchID, b.ID, 0, "", from, to, "")
+		if err != nil {
+			return nil, err
+		}
+		pb := PeriodBook{
+			BookID:   b.ID,
+			Name:     b.Name,
+			Incomes:  []LedgerEntry{},
+			Expenses: []LedgerEntry{},
+		}
+		pb.Totals.Opening = openIn - openOut
+		// List returns newest first; the report reads oldest first.
+		for i := len(txs) - 1; i >= 0; i-- {
+			t := txs[i]
+			e := LedgerEntry{
+				ID:          t.ID,
+				Date:        t.Date,
+				Description: t.Description,
+				PartnerName: t.PartnerName,
+				RefNo:       t.RefNo,
+			}
+			if t.Category != nil {
+				e.Category = t.Category.Name
+			}
+			if t.Type == "pemasukan" {
+				e.Income = t.Amount
+				pb.Totals.Income += t.Amount
+				pb.Incomes = append(pb.Incomes, e)
+			} else {
+				e.Expense = t.Amount
+				pb.Totals.Expense += t.Amount
+				pb.Expenses = append(pb.Expenses, e)
+			}
+		}
+		pb.Totals.Closing = pb.Totals.Opening + pb.Totals.Income - pb.Totals.Expense
+		// Buku nonaktif yang kosong tidak perlu tampil.
+		if !b.IsActive && pb.Totals.Opening == 0 && len(txs) == 0 {
+			continue
+		}
+		report.Books = append(report.Books, pb)
+		report.Totals.Opening += pb.Totals.Opening
+		report.Totals.Income += pb.Totals.Income
+		report.Totals.Expense += pb.Totals.Expense
+		report.Totals.Closing += pb.Totals.Closing
+	}
+	return report, nil
 }
 
 // ─── MasjidSettingsService ───────────────────────────────────────────────────

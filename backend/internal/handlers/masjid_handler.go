@@ -337,6 +337,17 @@ func (h *TransactionHandler) WeeklyReport(c *fiber.Ctx) error {
 	return c.JSON(report)
 }
 
+// PeriodReport handles GET /api/reports/period?from=&to=
+func (h *TransactionHandler) PeriodReport(c *fiber.Ctx) error {
+	orgID, _ := middleware.ActorOrgID(c)
+	branchID, _ := middleware.ActorBranchID(c)
+	report, err := h.txService.PeriodReport(orgID, branchID, c.Query("from"), c.Query("to"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.JSON(report)
+}
+
 // ─── MasjidSettingsHandler ───────────────────────────────────────────────────
 
 // MasjidSettingsHandler exposes the masjid profile endpoints.

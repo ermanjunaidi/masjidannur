@@ -16,13 +16,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Loader2, MessageCircle, RefreshCw, TrendingUp, TrendingDown, Wallet } from "lucide-react"
+import { Loader2, MessageCircle, Printer, RefreshCw, TrendingUp, TrendingDown, Wallet } from "lucide-react"
 import { ApiError, booksApi, masjidSettingsApi, reportsApi } from "@/lib/api"
-import type { Book, MasjidSettings, MonthlyReport, CategoryReportResponse, WeeklyReport } from "@/lib/types"
+import type { Book, MasjidSettings, MonthlyReport, CategoryReportResponse, WeeklyReport, PeriodReport } from "@/lib/types"
 import { formatRupiah, currentMonth } from "@/lib/types"
-import { buildMonthlyNota, buildCategoryNota, buildWeeklyNota, shareWhatsApp } from "@/lib/nota"
+import { buildMonthlyNota, buildCategoryNota, buildWeeklyNota, buildPeriodNota, shareWhatsApp } from "@/lib/nota"
+import PeriodReportSheet from "@/components/PeriodReportSheet"
 
-type Tab = "monthly" | "category" | "weekly"
+type Tab = "monthly" | "category" | "weekly" | "period"
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("monthly")
@@ -42,6 +43,12 @@ export default function ReportsPage() {
   const [weekFrom, setWeekFrom] = useState(firstDayOfMonth())
   const [weekTo, setWeekTo] = useState(today())
   const [weekly, setWeekly] = useState<WeeklyReport | null>(null)
+
+  // Periode state (default: Jumat lalu s.d. Jumat terakhir, seperti kertas laporan)
+  const [periodFrom, setPeriodFrom] = useState(() => addDays(lastFriday(), -7))
+  const [periodTo, setPeriodTo] = useState(lastFriday())
+  const [period, setPeriod] = useState<PeriodReport | null>(null)
+  const [mainBookId, setMainBookId] = useState<number | null>(null)
 
   const [settings, setSettings] = useState<MasjidSettings | null>(null)
   const [loading, setLoading] = useState(false)
@@ -78,6 +85,10 @@ export default function ReportsPage() {
     if (weekly) shareWhatsApp(buildWeeklyNota({ ...notaContext, report: weekly }))
   }
 
+  const sharePeriod = () => {
+    if (period) shareWhatsApp(buildPeriodNota({ masjid: settings, report: period }))
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -87,15 +98,17 @@ export default function ReportsPage() {
         setMonthly(await reportsApi.monthly(month, bookId))
       } else if (tab === "category") {
         setCatReport(await reportsApi.category(from, to, bookId))
-      } else {
+      } else if (tab === "weekly") {
         setWeekly(await reportsApi.weekly(weekFrom, weekTo, bookId))
+      } else {
+        setPeriod(await reportsApi.period(periodFrom, periodTo))
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Gagal memuat laporan")
     } finally {
       setLoading(false)
     }
-  }, [tab, month, from, to, weekFrom, weekTo, bookFilter])
+  }, [tab, month, from, to, weekFrom, weekTo, periodFrom, periodTo, bookFilter])
 
   useEffect(() => {
     void load()
@@ -111,6 +124,7 @@ export default function ReportsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {tab !== "period" && (
           <select
             className="h-9 rounded-lg border bg-background px-3 text-sm"
             value={String(bookFilter)}
@@ -125,6 +139,7 @@ export default function ReportsPage() {
               </option>
             ))}
           </select>
+          )}
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Muat Ulang
@@ -139,6 +154,7 @@ export default function ReportsPage() {
             ["monthly", "Bulanan"],
             ["category", "Per Kategori"],
             ["weekly", "Mingguan"],
+            ["period", "Periode"],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -390,6 +406,85 @@ export default function ReportsPage() {
           </CardContent>
         </Card>
       )}
+      {/* ─── Periode (format kertas laporan) ─────────────────────────── */}
+      {tab === "period" && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">Laporan Keuangan Periode</CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.print()}
+                  disabled={!period || period.books.length === 0}
+                >
+                  <Printer className="h-4 w-4" />
+                  Cetak / PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={sharePeriod}
+                  disabled={!period || period.books.length === 0}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Bagikan via WA
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="rep-pfrom">Dari</Label>
+                <Input
+                  id="rep-pfrom"
+                  type="date"
+                  value={periodFrom}
+                  onChange={(e) => setPeriodFrom(e.target.value)}
+                  className="w-40"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="rep-pto">Sampai</Label>
+                <Input
+                  id="rep-pto"
+                  type="date"
+                  value={periodTo}
+                  onChange={(e) => setPeriodTo(e.target.value)}
+                  className="w-40"
+                />
+              </div>
+              {period && period.books.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="rep-main">Buku utama (rinci)</Label>
+                  <select
+                    id="rep-main"
+                    className="h-9 rounded-lg border bg-background px-3 text-sm"
+                    value={String(mainBookId ?? period.books[0].book_id)}
+                    onChange={(e) => setMainBookId(Number(e.target.value))}
+                  >
+                    {period.books.map((b) => (
+                      <option key={b.book_id} value={b.book_id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {period && period.books.length === 0 && (
+              <p className="text-sm text-muted-foreground">Belum ada buku kas.</p>
+            )}
+            {period && period.books.length > 0 && (
+              <div className="rounded-lg border">
+                <PeriodReportSheet report={period} masjid={settings} mainBookId={mainBookId} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -440,4 +535,22 @@ function today(): string {
 
 function firstDayOfMonth(): string {
   return today().slice(0, 8) + "01"
+}
+
+/** Jumat terakhir (hari ini bila hari ini Jumat). */
+function lastFriday(): string {
+  const d = new Date()
+  const back = (d.getDay() - 5 + 7) % 7
+  d.setDate(d.getDate() - back)
+  return toISO(d)
+}
+
+function addDays(date: string, n: number): string {
+  const [y, m, d] = date.split("-").map(Number)
+  return toISO(new Date(y, m - 1, d + n))
+}
+
+function toISO(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

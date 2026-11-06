@@ -9,6 +9,7 @@ import type {
   CategoryReportResponse,
   CategoryReportRow,
   WeeklyReport,
+  PeriodReport,
   ReportTotals,
   Transaction,
 } from "./types"
@@ -216,5 +217,35 @@ export function buildWeeklyNota(
   })
 
   lines.push(...notaRekap(report.totals), ...notaFooter(opts.masjid))
+  return lines.join("\n")
+}
+
+// ─── Nota Laporan Periode (format kertas laporan takmir) ─────────────────────
+
+export function buildPeriodNota(
+  opts: NotaContext & { report: PeriodReport },
+): string {
+  const { report } = opts
+  const lines = notaHeader(
+    { masjid: opts.masjid },
+    "LAPORAN KEUANGAN",
+    `${formatTanggalID(report.from)} – ${formatTanggalID(report.to)}`,
+  )
+  for (const b of report.books) {
+    lines.push(`*${b.name.toUpperCase()}*`)
+    lines.push(`Saldo ${formatTanggalID(report.from, false)}: ${formatRupiah(b.totals.opening)}`)
+    for (const r of b.incomes) {
+      lines.push(`+ ${truncate(r.description || r.category || "—", 40)}: ${formatRupiah(r.income)}`)
+    }
+    for (const r of b.expenses) {
+      lines.push(`- ${truncate(r.description || r.category || "—", 40)}: ${formatRupiah(r.expense)}`)
+    }
+    lines.push(`*Saldo ${formatTanggalID(report.to, false)}: ${formatRupiah(b.totals.closing)}*`, "")
+  }
+  lines.push(
+    SEP,
+    `*TOTAL KAS ${formatTanggalID(report.to)}: ${formatRupiah(report.totals.closing)}*`,
+    ...notaFooter(opts.masjid),
+  )
   return lines.join("\n")
 }

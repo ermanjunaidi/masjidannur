@@ -240,6 +240,28 @@ export interface WeeklyReport {
   totals: ReportTotals
 }
 
+export interface PeriodTotals {
+  opening: number
+  income: number
+  expense: number
+  closing: number
+}
+
+export interface PeriodBook {
+  book_id: number
+  name: string
+  totals: PeriodTotals
+  incomes: LedgerEntry[]
+  expenses: LedgerEntry[]
+}
+
+export interface PeriodReport {
+  from: string
+  to: string
+  books: PeriodBook[]
+  totals: PeriodTotals
+}
+
 export const TYPE_LABELS: Record<string, string> = {
   pemasukan: "Pemasukan",
   pengeluaran: "Pengeluaran",
