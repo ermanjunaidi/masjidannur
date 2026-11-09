@@ -23,11 +23,20 @@ interface RoleModalProps {
   onSaved: (saved: Role) => void
 }
 
+const prefixOf = (key: string) => key.split(":")[0]
+
 function groupPermissions(perms: Permission[]) {
-  return PERMISSION_GROUPS.map((group) => ({
+  const grouped = PERMISSION_GROUPS.map((group) => ({
     ...group,
-    items: perms.filter((p) => p.key.startsWith(group.prefix + ":")),
-  })).filter((g) => g.items.length > 0)
+    items: perms.filter((p) => group.prefixes.includes(prefixOf(p.key))),
+  }))
+  // Never hide a permission: anything not mapped to a sidebar menu yet.
+  const known = new Set(PERMISSION_GROUPS.flatMap((g) => g.prefixes))
+  const rest = perms.filter((p) => !known.has(prefixOf(p.key)))
+  if (rest.length > 0) {
+    grouped.push({ label: "Lainnya", menus: "tidak terkait menu sidebar", prefixes: [], items: rest })
+  }
+  return grouped.filter((g) => g.items.length > 0)
 }
 
 export function RoleModal({
@@ -228,9 +237,16 @@ export function RoleModal({
                 !allSelected &&
                 group.items.some((it) => selectedKeys.has(it.key))
               return (
-                <div key={group.prefix} className="space-y-2">
+                <div key={group.label} className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <span>{group.label}</span>
+                    <span>
+                      {group.label}
+                      {group.menus !== group.label && (
+                        <span className="ml-1 font-normal normal-case tracking-normal">
+                          — menu {group.menus}
+                        </span>
+                      )}
+                    </span>
                     <button
                       type="button"
                       disabled={permsLocked}

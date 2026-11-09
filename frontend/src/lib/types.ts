@@ -47,20 +47,26 @@ export interface ApiErrorBody {
 // `defaultPermissionCatalog`. Used by the role-builder matrix UI to
 // render grouped, sensible defaults even when the API is briefly
 // unreachable.
+// Permission groups in the role editor mirror the sidebar: one group per
+// menu (same name & order), so an admin sees which menu each permission
+// opens. Permissions matching no group are shown under "Lainnya".
 export interface PermissionGroup {
   label: string
-  prefix: string
+  /** Sidebar menu(s) these permissions open. */
+  menus: string
+  /** Permission key prefixes (before ":") belonging to this group. */
+  prefixes: string[]
 }
 
 export const PERMISSION_GROUPS: PermissionGroup[] = [
-  { label: "Dashboard", prefix: "dashboard" },
-  { label: "Buku Kas", prefix: "books" },
-  { label: "Kategori", prefix: "categories" },
-  { label: "Transaksi", prefix: "transactions" },
-  { label: "Laporan", prefix: "reports" },
-  { label: "Settings", prefix: "settings" },
-  { label: "Users", prefix: "users" },
-  { label: "Roles & Permissions", prefix: "roles" },
+  { label: "Dashboard", menus: "Dashboard", prefixes: ["dashboard"] },
+  { label: "Buku Kas", menus: "Buku Kas", prefixes: ["books"] },
+  { label: "Kategori", menus: "Kategori", prefixes: ["categories"] },
+  { label: "Transaksi", menus: "Transaksi", prefixes: ["transactions"] },
+  { label: "Laporan", menus: "Laporan", prefixes: ["reports"] },
+  { label: "Jadwal Pengajian", menus: "Jadwal Pengajian", prefixes: ["lecturings"] },
+  { label: "Users & Roles", menus: "Users & Roles", prefixes: ["users", "roles"] },
+  { label: "Settings", menus: "Settings", prefixes: ["settings"] },
 ]
 
 // ─── Buku Masjid domain types ───────────────────────────────────────────────
