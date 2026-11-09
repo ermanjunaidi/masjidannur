@@ -156,16 +156,16 @@ func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
 		return nil, errors.New("failed to hash password")
 	}
 
-	adminRole, err := s.roleRepo.FindByName(DefaultRoleName)
-	if err != nil {
-		return nil, errors.New("default role lookup failed")
-	}
-
 	// SaaS model: each signup gets its own organization (tenant). The
-	// registering user becomes the admin of that fresh workspace.
+	// registering user becomes the admin of that fresh workspace, using the
+	// organization's own copy of the admin role (seeded on create).
 	org := &models.Organization{Name: input.Name}
 	if err := s.db.Create(org).Error; err != nil {
 		return nil, errors.New("failed to create organization")
+	}
+	adminRole, err := s.roleRepo.FindByName(org.ID, DefaultRoleName)
+	if err != nil {
+		return nil, errors.New("default role lookup failed")
 	}
 
 	user := &models.User{
@@ -529,13 +529,13 @@ func NormalizeEmail(email string) string {
 
 // createGoogleUser registers a new masjid admin for a Google signup.
 func (s *AuthService) createGoogleUser(name, email, googleID string) (*models.User, error) {
-	adminRole, err := s.roleRepo.FindByName(DefaultRoleName)
-	if err != nil {
-		return nil, errors.New("default role lookup failed")
-	}
 	org := &models.Organization{Name: name}
 	if err := s.db.Create(org).Error; err != nil {
 		return nil, errors.New("failed to create organization")
+	}
+	adminRole, err := s.roleRepo.FindByName(org.ID, DefaultRoleName)
+	if err != nil {
+		return nil, errors.New("default role lookup failed")
 	}
 	// Google signups get a random unusable password (OAuth login only).
 	hashed, err := UnusablePasswordHash()

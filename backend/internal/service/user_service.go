@@ -89,7 +89,7 @@ func (s *UserService) CreateUser(actor Actor, branchID uint, input *CreateUserIn
 	if len(input.RoleIDs) == 0 {
 		return nil, ErrRoleRequired
 	}
-	roles, err := s.resolveRoles(input.RoleIDs)
+	roles, err := s.resolveRoles(orgID, input.RoleIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (s *UserService) UpdateUser(actor Actor, id uint, input *UpdateUserInput) (
 		if len(input.RoleIDs) == 0 {
 			return nil, ErrRoleRequired
 		}
-		roles, err := s.resolveRoles(input.RoleIDs)
+		roles, err := s.resolveRoles(user.OrganizationID, input.RoleIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -401,8 +401,9 @@ func (s *UserService) checkTarget(actor Actor, target *models.User) error {
 	return nil
 }
 
-// resolveRoles loads the requested roles (deduplicated); unknown IDs fail.
-func (s *UserService) resolveRoles(ids []uint) ([]models.Role, error) {
+// resolveRoles loads the requested roles (deduplicated) of organization
+// orgID; unknown IDs and roles of another organization fail.
+func (s *UserService) resolveRoles(orgID uint, ids []uint) ([]models.Role, error) {
 	seen := map[uint]bool{}
 	roles := make([]models.Role, 0, len(ids))
 	for _, id := range ids {
@@ -410,7 +411,7 @@ func (s *UserService) resolveRoles(ids []uint) ([]models.Role, error) {
 			continue
 		}
 		seen[id] = true
-		role, err := s.roleRepo.FindByID(id)
+		role, err := s.roleRepo.FindByIDInOrg(id, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -462,7 +463,7 @@ func (s *UserService) checkPlatformRole(user *models.User, roleIDs []uint) error
 	if user.OrganizationID == 0 || len(roleIDs) == 0 {
 		return nil
 	}
-	platform, err := s.roleRepo.FindByName(platformRoleName)
+	platform, err := s.roleRepo.FindByName(0, platformRoleName)
 	if err != nil {
 		return err
 	}

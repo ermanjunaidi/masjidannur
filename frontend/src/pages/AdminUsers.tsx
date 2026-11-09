@@ -22,13 +22,13 @@ import { useAuth } from "@/context/AuthContext"
 type Tab = "users" | "roles"
 
 export default function AdminUsers() {
-  const { hasPermission, user } = useAuth()
+  const { hasPermission } = useAuth()
   const canViewUsers = hasPermission("users:read")
   const canWriteUsers = hasPermission("users:write")
   const canViewRoles = hasPermission("roles:read")
-  // Roles are shared by every masjid, so the API only lets platform staff
-  // (organization_id 0) change them.
-  const canWriteRoles = hasPermission("roles:write") && user?.organization_id === 0
+  // Roles are per masjid: an admin with roles:write edits its own masjid's
+  // roles (platform staff edit the templates new masjids are seeded from).
+  const canWriteRoles = hasPermission("roles:write")
 
   const [tab, setTab] = useState<Tab>(canViewRoles ? "roles" : "users")
   // Re-derive tab when permissions resolve asynchronously so a non-admin

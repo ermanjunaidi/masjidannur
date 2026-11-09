@@ -28,6 +28,17 @@ func (r *PermissionRepository) FindAll() ([]models.Permission, error) {
 
 // FindByKey looks up a permission by its unique key. Returns (nil, nil)
 // when the row is missing so callers can decide whether to seed or fail.
+// FindByIDs returns the permissions with the given ids (unknown ids are
+// simply absent from the result).
+func (r *PermissionRepository) FindByIDs(ids []uint) ([]models.Permission, error) {
+	var perms []models.Permission
+	if len(ids) == 0 {
+		return perms, nil
+	}
+	err := r.db.Where("id IN ?", ids).Find(&perms).Error
+	return perms, err
+}
+
 func (r *PermissionRepository) FindByKey(key string) (*models.Permission, error) {
 	var perm models.Permission
 	err := r.db.Where("key = ?", key).First(&perm).Error

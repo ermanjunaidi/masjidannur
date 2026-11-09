@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { ModalShell } from "@/components/UserModal"
 import { rolesApi } from "@/lib/api"
 import { ApiError } from "@/lib/api"
+import { useAuth } from "@/context/AuthContext"
 import { PERMISSION_GROUPS, type Permission, type Role } from "@/lib/types"
 import { Loader2 } from "lucide-react"
 
@@ -43,6 +44,23 @@ export function RoleModal({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Aturan role (dicek ulang di backend): admin laundry hanya boleh
+  // memberi izin yang ia punya sendiri, tidak bisa mengubah role yang
+  // izinnya melebihi miliknya, dan tidak bisa mengubah izin role yang ia
+  // pakai sendiri. Superadmin platform bebas (mengelola template role).
+  const { user: actor } = useAuth()
+  const isPlatform =
+    !!actor && (actor.organization_id ?? 0) === 0 && (actor.roles?.some((r) => r.name === "superadmin") ?? false)
+  const actorPerms = new Set(
+    (actor?.roles ?? []).flatMap((r) => (r.permissions ?? []).map((p) => p.key)),
+  )
+  const canGrant = (key: string) => isPlatform || actorPerms.has(key)
+  const outranks =
+    mode === "edit" && !isPlatform && (initialRole?.permissions ?? []).some((p) => !actorPerms.has(p.key))
+  const ownRole =
+    mode === "edit" && !isPlatform && !!initialRole && (actor?.roles ?? []).some((r) => r.id === initialRole.id)
+  const permsLocked = outranks || ownRole
+
   useEffect(() => {
     if (!open) return
     setName(initialRole?.name ?? "")
@@ -58,6 +76,7 @@ export function RoleModal({
   const permIDByKey = new Map(permissions.map((p) => [p.key, p.id]))
 
   const togglePermission = (key: string) => {
+    if (permsLocked || !canGrant(key)) return
     setSelectedKeys((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -67,10 +86,12 @@ export function RoleModal({
   }
 
   const toggleGroup = (group: ReturnType<typeof groupPermissions>[number]) => {
-    const allSelected = group.items.every((it) => selectedKeys.has(it.key))
+    if (permsLocked) return
+    const items = group.items.filter((it) => canGrant(it.key))
+    const allSelected = items.every((it) => selectedKeys.has(it.key))
     setSelectedKeys((prev) => {
       const next = new Set(prev)
-      group.items.forEach((it) => {
+      items.forEach((it) => {
         if (allSelected) next.delete(it.key)
         else next.add(it.key)
       })
@@ -134,7 +155,7 @@ export function RoleModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || outranks}>
             {saving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -178,6 +199,21 @@ export function RoleModal({
 
       <div className="space-y-3">
         <Label>Permissions</Label>
+        {outranks && (
+          <p className="text-xs text-destructive">
+            Role ini punya izin yang tidak Anda miliki, jadi tidak bisa diubah.
+          </p>
+        )}
+        {!outranks && ownRole && (
+          <p className="text-xs text-muted-foreground">
+            Anda memakai role ini sendiri, jadi izinnya tidak bisa Anda ubah. Nama dan deskripsi tetap bisa diubah.
+          </p>
+        )}
+        {!isPlatform && !permsLocked && (
+          <p className="text-xs text-muted-foreground">
+            Izin yang tidak Anda miliki tidak bisa dicentang.
+          </p>
+        )}
         {groups.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No permissions found in catalog.
@@ -197,6 +233,7 @@ export function RoleModal({
                     <span>{group.label}</span>
                     <button
                       type="button"
+                      disabled={permsLocked}
                       onClick={() => toggleGroup(group)}
                       className="text-[11px] text-primary hover:underline"
                     >
@@ -206,10 +243,14 @@ export function RoleModal({
                   <div className="grid gap-2 sm:grid-cols-2">
                     {group.items.map((p) => {
                       const checked = selectedKeys.has(p.key)
+                      const disabled = permsLocked || !canGrant(p.key)
                       return (
                         <label
                           key={p.key}
-                          className={`flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm transition-colors ${
+                          title={!canGrant(p.key) ? "Anda tidak punya izin ini" : undefined}
+                          className={`flex items-center gap-2 rounded-md border p-2 text-sm transition-colors ${
+                            disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                          } ${
                             checked
                               ? "border-primary bg-primary/5"
                               : "bg-background hover:bg-muted"
@@ -219,6 +260,7 @@ export function RoleModal({
                             type="checkbox"
                             className="h-4 w-4 rounded border"
                             checked={checked}
+                            disabled={disabled}
                             onChange={() => togglePermission(p.key)}
                           />
                           <span className="flex-1">

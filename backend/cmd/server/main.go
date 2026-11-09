@@ -134,6 +134,10 @@ func main() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	if err := migrateRoleIndexes(db); err != nil {
+		log.Fatalf("Failed to migrate role indexes: %v", err)
+	}
+
 	// ─── Repositories ─────────────────────────────────────────────────────────
 	userRepo := repository.NewUserRepository(db)
 	roleRepo := repository.NewRoleRepository(db)
@@ -144,7 +148,7 @@ func main() {
 	settingsRepo := repository.NewMasjidSettingsRepository(db)
 	lecturingRepo := repository.NewLecturingRepository(db)
 
-	if err := bootstrapRBAC(permissionRepo, roleRepo); err != nil {
+	if err := bootstrapRBAC(db, permissionRepo, roleRepo); err != nil {
 		log.Fatalf("Failed to bootstrap RBAC: %v", err)
 	}
 
@@ -175,7 +179,7 @@ func main() {
 		env.FrontendURL,
 	)
 	userService := service.NewUserService(userRepo, roleRepo, authService)
-	roleService := service.NewRoleService(roleRepo, permissionRepo)
+	roleService := service.NewRoleService(roleRepo, permissionRepo, userRepo)
 	bookService := service.NewBookService(bookRepo)
 	categoryService := service.NewCategoryService(categoryRepo, bookRepo)
 	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, bookRepo)
@@ -278,7 +282,7 @@ func main() {
 	backupService := backup.NewService(db, "masjidannur", "uploads", "backups", func() error {
 		// A restore replaces users/roles too: re-apply the RBAC catalog and
 		// the env superadmin so the operator can always log back in.
-		if err := bootstrapRBAC(permissionRepo, roleRepo); err != nil {
+		if err := bootstrapRBAC(db, permissionRepo, roleRepo); err != nil {
 			return err
 		}
 		if env.AppEnv == "production" {
@@ -328,10 +332,17 @@ func seedDefaultBook(db *gorm.DB) error {
 	return db.Create(book).Error
 }
 
+// bootstrapRBAC syncs the permission catalog and the template roles
+// (organization 0), then makes sure every laundry has its own copy of the
+// templates (backfillOrganizationRoles). A permission that is new to the
+// catalog is also added once to the tenants' copies of the roles bound to
+// it; tenant edits are otherwise never overwritten.
 func bootstrapRBAC(
+	db *gorm.DB,
 	permissionRepo *repository.PermissionRepository,
 	roleRepo *repository.RoleRepository,
 ) error {
+	newKeys := map[string]bool{}
 	for i := range defaultPermissionCatalog {
 		seed := &defaultPermissionCatalog[i]
 		existing, err := permissionRepo.FindByKey(seed.Key)
@@ -344,6 +355,7 @@ func bootstrapRBAC(
 		if err := permissionRepo.Create(seed); err != nil {
 			return err
 		}
+		newKeys[seed.Key] = true
 	}
 
 	perms, err := permissionRepo.FindAll()
@@ -356,7 +368,7 @@ func bootstrapRBAC(
 	}
 
 	for _, binding := range defaultRoleBindings {
-		existing, err := roleRepo.FindByName(binding.Name)
+		existing, err := roleRepo.FindByName(0, binding.Name)
 		if err != nil {
 			return err
 		}
@@ -367,11 +379,16 @@ func bootstrapRBAC(
 				return fmt.Errorf("bootstrapRBAC: missing seed permission %q", key)
 			}
 			ids = append(ids, id)
+			if newKeys[key] && binding.Name != models.PlatformRoleName {
+				if err := roleRepo.AppendPermissionToOrgRoles(binding.Name, id); err != nil {
+					return err
+				}
+			}
 		}
 		if existing != nil {
-			// Role already present — make sure it carries any permissions
-			// added to the catalog since it was first created, without
-			// stripping admin customizations.
+			// Template already present — make sure it carries any
+			// permissions added to the catalog since it was first created,
+			// without stripping platform customizations.
 			if err := roleRepo.EnsurePermissions(existing.ID, ids); err != nil {
 				return err
 			}
@@ -382,6 +399,63 @@ func bootstrapRBAC(
 			Description: binding.Description,
 		}, ids); err != nil {
 			return err
+		}
+	}
+	return backfillOrganizationRoles(db)
+}
+
+// migrateRoleIndexes replaces the old global unique index on roles.name
+// (roles used to be shared by every tenant) with a per-organization one.
+func migrateRoleIndexes(db *gorm.DB) error {
+	if db.Migrator().HasIndex("roles", "idx_roles_name") {
+		if err := db.Migrator().DropIndex("roles", "idx_roles_name"); err != nil {
+			return fmt.Errorf("drop idx_roles_name: %w", err)
+		}
+		log.Printf("[migrate] dropped global unique index idx_roles_name")
+	}
+	return db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_roles_org_name
+		ON roles (organization_id, name) WHERE deleted_at IS NULL`).Error
+}
+
+// backfillOrganizationRoles gives every laundry its own copy of the
+// template roles and moves its users off the shared templates onto those
+// copies (matched by name), so a tenant's role edits stay inside that
+// tenant. Idempotent: existing copies and assignments are left alone.
+func backfillOrganizationRoles(db *gorm.DB) error {
+	var orgIDs []uint
+	if err := db.Model(&models.Organization{}).Order("id ASC").Pluck("id", &orgIDs).Error; err != nil {
+		return err
+	}
+	for _, orgID := range orgIDs {
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := models.SeedOrganizationRoles(tx, orgID); err != nil {
+				return err
+			}
+			res := tx.Exec(`UPDATE user_roles ur SET role_id = own.id
+				FROM users u, roles tpl, roles own
+				WHERE ur.user_id = u.id AND u.organization_id = ?
+				  AND ur.role_id = tpl.id AND tpl.organization_id = 0 AND tpl.name <> ?
+				  AND own.organization_id = u.organization_id AND own.name = tpl.name
+				  AND own.deleted_at IS NULL
+				  AND NOT EXISTS (SELECT 1 FROM user_roles x WHERE x.user_id = ur.user_id AND x.role_id = own.id)`,
+				orgID, models.PlatformRoleName)
+			if res.Error != nil {
+				return res.Error
+			}
+			// A user holding both the template and its copy keeps the copy.
+			if err := tx.Exec(`DELETE FROM user_roles ur USING users u, roles tpl
+				WHERE ur.user_id = u.id AND u.organization_id = ?
+				  AND ur.role_id = tpl.id AND tpl.organization_id = 0 AND tpl.name <> ?`,
+				orgID, models.PlatformRoleName).Error; err != nil {
+				return err
+			}
+			if res.RowsAffected > 0 {
+				log.Printf("[migrate] organization %d: %d user role(s) moved to its own roles", orgID, res.RowsAffected)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("organization %d roles: %w", orgID, err)
 		}
 	}
 	return nil
@@ -473,7 +547,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 			return err
 		}
 		if existing == nil {
-			role, err := roleRepo.FindByName("superadmin")
+			role, err := roleRepo.FindByName(0, "superadmin")
 			if err != nil {
 				return err
 			}
@@ -514,7 +588,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 	if err := db.Table("users").
 		Joins("JOIN user_roles ur ON ur.user_id = users.id").
 		Joins("JOIN roles r ON r.id = ur.role_id").
-		Where("r.name = ? AND users.is_active AND users.deleted_at IS NULL", "superadmin").
+		Where("r.name = ? AND r.organization_id = 0 AND users.organization_id = 0 AND users.is_active AND users.deleted_at IS NULL", "superadmin").
 		Count(&activeSuperadmins).Error; err != nil {
 		return err
 	}
@@ -571,7 +645,12 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 			return err
 		}
 
-		role, err := roleRepo.FindByName(seed.RoleName)
+		orgID := demoOrg.ID
+		if seed.RoleName == "superadmin" {
+			orgID = 0
+		}
+
+		role, err := roleRepo.FindByName(orgID, seed.RoleName)
 		if err != nil {
 			return err
 		}
@@ -579,11 +658,6 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 			return fmt.Errorf("seed role %q not found in catalog", seed.RoleName)
 		}
 		roleIDs := []uint{role.ID}
-
-		orgID := demoOrg.ID
-		if seed.RoleName == "superadmin" {
-			orgID = 0
-		}
 
 		user, err := userRepo.FindByEmail(seed.Email)
 		if err != nil {

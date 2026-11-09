@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Organization represents a masjid workspace (tenant) in the SaaS model.
 // Every self-registered user becomes the admin of their own organization,
@@ -16,4 +20,11 @@ type Organization struct {
 	Address   string    `gorm:"type:text" json:"address"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// AfterCreate gives every new masjid its own copy of the template roles
+// (admin, bendahara, ...) so its admin can edit them without affecting
+// other masjids.
+func (o *Organization) AfterCreate(tx *gorm.DB) error {
+	return SeedOrganizationRoles(tx, o.ID)
 }

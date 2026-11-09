@@ -490,7 +490,11 @@ export interface UpdateRolePayload {
 }
 
 export const rolesApi = {
-  list: () => apiRequest<ListRolesResponse>("/api/roles"),
+  // organizationId: platform superadmin only — list a masjid's roles.
+  list: (organizationId?: number) =>
+    apiRequest<ListRolesResponse>(
+      organizationId ? `/api/roles?organization_id=${organizationId}` : "/api/roles",
+    ),
   create: (payload: CreateRolePayload) =>
     apiRequest<Role>("/api/roles", {
       method: "POST",

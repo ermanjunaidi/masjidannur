@@ -166,7 +166,7 @@ export function ModalShell({
 
 // ─── UserModal ────────────────────────────────────────────────────────────────
 
-import { usersApi, ApiError, type InviteResult } from "@/lib/api"
+import { usersApi, rolesApi, ApiError, type InviteResult } from "@/lib/api"
 import type { Role, User } from "@/lib/types"
 import { useAuth } from "@/context/AuthContext"
 
@@ -213,6 +213,32 @@ export function UserModal({
   const isSelf = mode === "edit" && !!initialUser && initialUser.id === actor?.id
   const roleExceedsActor = (role: Role) =>
     !isPlatform && (role.permissions ?? []).some((p) => !actorPerms.has(p.key))
+
+  // Roles are per masjid: when the platform superadmin edits a masjid's
+  // user, offer that masjid's roles instead of the platform templates.
+  const targetOrg = mode === "edit" ? initialUser?.organization_id ?? 0 : 0
+  const [orgRoles, setOrgRoles] = useState<{ org: number; roles: Role[] } | null>(null)
+  useEffect(() => {
+    if (!open || !isPlatform || targetOrg === 0) return
+    let cancelled = false
+    rolesApi
+      .list(targetOrg)
+      .then((r) => {
+        if (!cancelled) setOrgRoles({ org: targetOrg, roles: r.roles ?? [] })
+      })
+      .catch(() => {
+        if (!cancelled) setOrgRoles({ org: targetOrg, roles: [] })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, isPlatform, targetOrg])
+  const roleOptions =
+    isPlatform && targetOrg !== 0
+      ? orgRoles?.org === targetOrg
+        ? orgRoles.roles
+        : []
+      : availableRoles
 
   // Reset form state every time the modal opens with a different target.
   useEffect(() => {
@@ -453,13 +479,13 @@ export function UserModal({
             Role akun Anda sendiri tidak bisa diubah. Minta admin lain bila perlu.
           </p>
         )}
-        {availableRoles.length === 0 ? (
+        {roleOptions.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No roles defined yet. Create roles from the Roles tab first.
           </p>
         ) : (
           <div className="flex flex-wrap gap-2 rounded-lg border p-3 bg-muted/30">
-            {availableRoles.map((role) => {
+            {roleOptions.map((role) => {
               const checked = selectedRoleIDs.includes(role.id)
               const exceeds = roleExceedsActor(role)
               const locked = isSelf || (exceeds && !checked)

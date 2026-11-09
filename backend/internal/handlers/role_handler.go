@@ -23,15 +23,46 @@ func NewRoleHandler(roleService *service.RoleService, permissionRepo *repository
 	return &RoleHandler{roleService: roleService, permissionRepo: permissionRepo}
 }
 
-// ListRoles handles GET /api/roles.
+// ListRoles handles GET /api/roles: the caller organization's roles (a
+// laundry sees its own copies, the platform sees the templates). The
+// platform superadmin may pass ?organization_id=N to list a laundry's
+// roles, e.g. to assign them while editing that laundry's user.
 func (h *RoleHandler) ListRoles(c *fiber.Ctx) error {
-	roles, err := h.roleService.ListRoles()
+	actor := actorFrom(c)
+	if raw := c.Query("organization_id"); raw != "" && actor.OrgID == 0 {
+		orgID, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid organization_id"})
+		}
+		actor.OrgID = uint(orgID)
+	}
+	roles, err := h.roleService.ListRoles(actor)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 	return c.JSON(fiber.Map{"roles": roles})
+}
+
+// roleError maps role domain errors to HTTP status codes.
+func roleError(c *fiber.Ctx, err error) error {
+	status := fiber.StatusInternalServerError
+	switch {
+	case errors.Is(err, service.ErrRoleNotFound):
+		status = fiber.StatusNotFound
+	case errors.Is(err, service.ErrRoleTaken):
+		status = fiber.StatusConflict
+	case errors.Is(err, service.ErrRoleNameRequired), errors.Is(err, service.ErrPermissionInvalid),
+		errors.Is(err, repository.ErrRoleInUse), errors.Is(err, service.ErrRoleNameReserved):
+		status = fiber.StatusBadRequest
+	case errors.Is(err, service.ErrPermissionEscalation), errors.Is(err, service.ErrRoleOutranks),
+		errors.Is(err, service.ErrOwnRoleChange):
+		status = fiber.StatusForbidden
+	case errors.Is(err, service.ErrActorUnknown):
+		status = fiber.StatusUnauthorized
+	}
+	return c.Status(status).JSON(fiber.Map{"error": err.Error()})
 }
 
 // ListPermissions handles GET /api/permissions. Returns the full catalog
@@ -54,14 +85,9 @@ func (h *RoleHandler) CreateRole(c *fiber.Ctx) error {
 			"error": "invalid request body",
 		})
 	}
-	role, err := h.roleService.CreateRole(&input)
+	role, err := h.roleService.CreateRole(actorFrom(c), &input)
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrRoleTaken):
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
-		default:
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-		}
+		return roleError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(role)
 }
@@ -80,16 +106,9 @@ func (h *RoleHandler) UpdateRole(c *fiber.Ctx) error {
 			"error": "invalid request body",
 		})
 	}
-	role, err := h.roleService.UpdateRole(uint(id), &input)
+	role, err := h.roleService.UpdateRole(actorFrom(c), uint(id), &input)
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrRoleNotFound):
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
-		case errors.Is(err, service.ErrRoleTaken):
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
-		default:
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
+		return roleError(c, err)
 	}
 	return c.JSON(role)
 }
@@ -103,15 +122,8 @@ func (h *RoleHandler) DeleteRole(c *fiber.Ctx) error {
 			"error": "invalid role id",
 		})
 	}
-	if err := h.roleService.DeleteRole(uint(id)); err != nil {
-		switch {
-		case errors.Is(err, service.ErrRoleNotFound):
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
-		case errors.Is(err, repository.ErrRoleInUse):
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
-		default:
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-		}
+	if err := h.roleService.DeleteRole(actorFrom(c), uint(id)); err != nil {
+		return roleError(c, err)
 	}
 	return c.JSON(fiber.Map{"deleted": uint(id)})
 }

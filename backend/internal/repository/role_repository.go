@@ -18,11 +18,23 @@ func NewRoleRepository(db *gorm.DB) *RoleRepository {
 	return &RoleRepository{db: db}
 }
 
-// FindAll returns all non-deleted roles (preloading Permissions).
-func (r *RoleRepository) FindAll() ([]models.Role, error) {
+// FindAllInOrg returns the organization's non-deleted roles (preloading
+// Permissions). Organization 0 holds the platform templates.
+func (r *RoleRepository) FindAllInOrg(orgID uint) ([]models.Role, error) {
 	var roles []models.Role
-	err := r.db.Preload("Permissions").Order("name ASC").Find(&roles).Error
+	err := r.db.Preload("Permissions").Where("organization_id = ?", orgID).
+		Order("name ASC").Find(&roles).Error
 	return roles, err
+}
+
+// FindByIDInOrg looks up a role by primary key within one organization;
+// a role of another organization is reported as not found.
+func (r *RoleRepository) FindByIDInOrg(id, orgID uint) (*models.Role, error) {
+	role, err := r.FindByID(id)
+	if err != nil || role == nil || role.OrganizationID != orgID {
+		return nil, err
+	}
+	return role, nil
 }
 
 // FindByID looks up a role by primary key, preloading permissions.
@@ -38,10 +50,11 @@ func (r *RoleRepository) FindByID(id uint) (*models.Role, error) {
 	return &role, nil
 }
 
-// FindByName looks up a role by its unique name.
-func (r *RoleRepository) FindByName(name string) (*models.Role, error) {
+// FindByName looks up a role by name within one organization (names are
+// unique per organization; 0 = platform templates).
+func (r *RoleRepository) FindByName(orgID uint, name string) (*models.Role, error) {
 	var role models.Role
-	err := r.db.Preload("Permissions").Where("name = ?", name).First(&role).Error
+	err := r.db.Preload("Permissions").Where("organization_id = ? AND name = ?", orgID, name).First(&role).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -191,6 +204,18 @@ func (r *RoleRepository) permissionEntities(tx *gorm.DB, ids []uint) []models.Pe
 	var perms []models.Permission
 	tx.Where("id IN ?", ids).Find(&perms)
 	return perms
+}
+
+// AppendPermissionToOrgRoles adds one permission to every tenant copy
+// (organization_id <> 0) of the named role that lacks it. Used when a new
+// catalog permission is introduced, so tenants receive it once without
+// their later removals being undone on every restart.
+func (r *RoleRepository) AppendPermissionToOrgRoles(roleName string, permissionID uint) error {
+	return r.db.Exec(`INSERT INTO role_permissions (role_id, permission_id)
+		SELECT id, ? FROM roles
+		WHERE name = ? AND organization_id <> 0 AND deleted_at IS NULL
+		  AND id NOT IN (SELECT role_id FROM role_permissions WHERE permission_id = ?)`,
+		permissionID, roleName, permissionID).Error
 }
 
 // ErrRoleInUse is returned by Delete when the role is still referenced.

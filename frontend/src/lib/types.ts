@@ -10,6 +10,7 @@ export interface Permission {
 
 export interface Role {
   id: number
+  organization_id: number
   name: string
   description: string
   permissions: Permission[]
