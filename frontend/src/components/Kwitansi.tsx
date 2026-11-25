@@ -7,7 +7,7 @@
 // computed style dengan akurat tanpa tergantung urutan CSS.
 
 import type { MasjidSettings, Transaction } from "@/lib/types"
-import { formatRupiah, nomorNota } from "@/lib/types"
+import { formatKg, formatRupiah, nomorNota } from "@/lib/types"
 import { terbilang } from "@/lib/kwitansi"
 
 export const KWITANSI_W = 877
@@ -133,7 +133,16 @@ export function Kwitansi({
         }}
       >
         <span style={{ fontWeight: 700 }}>Terbilang: </span>
-        <span style={{ fontStyle: "italic" }}># {terbilang(tx.amount)} #</span>
+        <span style={{ fontStyle: "italic" }}>
+          #{" "}
+          {[
+            tx.amount > 0 || !tx.rice_kg ? terbilang(tx.amount) : "",
+            tx.rice_kg ? `beras ${formatKg(tx.rice_kg)}` : "",
+          ]
+            .filter(Boolean)
+            .join(" dan ")}{" "}
+          #
+        </span>
       </div>
 
       {/* ── Isi ── */}
@@ -189,8 +198,13 @@ export function Kwitansi({
                 whiteSpace: "nowrap",
               }}
             >
-              {formatRupiah(tx.amount)}
+              {tx.amount > 0 || !tx.rice_kg ? formatRupiah(tx.amount) : `Beras ${formatKg(tx.rice_kg)}`}
             </p>
+            {tx.amount > 0 && !!tx.rice_kg && (
+              <p style={{ margin: "2px 0 0", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" }}>
+                + Beras {formatKg(tx.rice_kg)}
+              </p>
+            )}
           </div>
         </div>
       </div>

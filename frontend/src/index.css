@@ -128,6 +128,37 @@
     @apply font-sans;
     }
 }
+/* Tata letak cetak Laporan Periode: rincian buku dibagi 2 kolom agar muat
+   1 halaman A4. Kelas dipasang printPeriodSheet() sebelum mengukur tinggi
+   dan dilepas setelah dialog cetak ditutup, jadi ukuran = hasil cetak. */
+#period-print.print-layout .period-books {
+  column-count: 2;
+  column-gap: 14px;
+  margin-top: 20px;
+}
+/* Buku panjang boleh berlanjut ke kolom/halaman berikutnya (seperti kolom
+   koran); yang dijaga utuh cukup judul buku + baris transaksinya. */
+#period-print.print-layout .period-books > section {
+  break-inside: auto;
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+#period-print.print-layout .period-books h3 {
+  break-after: avoid;
+}
+#period-print.print-layout .period-books .grid,
+#period-print.print-layout .period-books .flex {
+  break-inside: avoid;
+}
+/* Saldo akhir jangan terpisah sendirian dari rincian di atasnya. */
+#period-print.print-layout .period-books .period-closing {
+  break-before: avoid;
+}
+/* Bila muat, setiap buku dibiarkan utuh dalam satu kolom. */
+#period-print.print-layout.print-keep .period-books > section {
+  break-inside: avoid;
+}
+
 /* Cetak Laporan Periode: hanya lembar laporan yang ikut tercetak. */
 @media print {
   @page {
@@ -141,10 +172,13 @@
   #period-print * {
     visibility: visible;
   }
+  /* --period-print-zoom diisi printPeriodSheet() agar muat 1 halaman A4.
+     Lebar dibagi zoom supaya setelah diperkecil tetap selebar kertas. */
   #period-print {
     position: absolute;
     inset: 0 auto auto 0;
-    width: 100%;
+    zoom: var(--period-print-zoom, 1);
+    width: calc(186mm / var(--period-print-zoom, 1));
     max-width: none;
     min-width: 0;
     padding: 0;

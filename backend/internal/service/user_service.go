@@ -19,6 +19,7 @@ import (
 type UserService struct {
 	userRepo *repository.UserRepository
 	roleRepo *repository.RoleRepository
+	bookRepo *repository.BookRepository
 	inviter  Inviter
 }
 
@@ -29,8 +30,8 @@ type Inviter interface {
 }
 
 // NewUserService wires the dependencies.
-func NewUserService(userRepo *repository.UserRepository, roleRepo *repository.RoleRepository, inviter Inviter) *UserService {
-	return &UserService{userRepo: userRepo, roleRepo: roleRepo, inviter: inviter}
+func NewUserService(userRepo *repository.UserRepository, roleRepo *repository.RoleRepository, bookRepo *repository.BookRepository, inviter Inviter) *UserService {
+	return &UserService{userRepo: userRepo, roleRepo: roleRepo, bookRepo: bookRepo, inviter: inviter}
 }
 
 // CreateUserInput is the payload accepted by POST /api/users. There is
@@ -40,6 +41,8 @@ type CreateUserInput struct {
 	Name    string `json:"name"`
 	Email   string `json:"email"`
 	RoleIDs []uint `json:"role_ids"`
+	// BookIDs locks the user to these cash books. Empty = every book.
+	BookIDs []uint `json:"book_ids"`
 }
 
 // InviteResult tells the admin how the invite was delivered. InviteLink
@@ -98,6 +101,11 @@ func (s *UserService) CreateUser(actor Actor, branchID uint, input *CreateUserIn
 	}
 	input.RoleIDs = roleIDsOf(roles)
 
+	bookIDs, err := s.resolveBookLock(actor, orgID, input.BookIDs, true)
+	if err != nil {
+		return nil, err
+	}
+
 	hashed, err := UnusablePasswordHash()
 	if err != nil {
 		return nil, err
@@ -114,7 +122,7 @@ func (s *UserService) CreateUser(actor Actor, branchID uint, input *CreateUserIn
 	if err := s.checkPlatformRole(user, input.RoleIDs); err != nil {
 		return nil, err
 	}
-	if err := s.userRepo.CreateWithRoles(user, input.RoleIDs); err != nil {
+	if err := s.userRepo.CreateWithRoles(user, input.RoleIDs, bookIDs); err != nil {
 		return nil, err
 	}
 
@@ -222,6 +230,9 @@ type UpdateUserInput struct {
 	Password string `json:"password,omitempty"`
 	IsActive *bool  `json:"is_active,omitempty"`
 	RoleIDs  []uint `json:"role_ids,omitempty"`
+	// BookIDs: absent (nil) keeps the current book lock, an empty list
+	// removes it, otherwise the user is locked to exactly these books.
+	BookIDs *[]uint `json:"book_ids,omitempty"`
 }
 
 // UpdateUser applies the input to an existing user record in the actor's
@@ -304,7 +315,15 @@ func (s *UserService) UpdateUser(actor Actor, id uint, input *UpdateUserInput) (
 	if err != nil {
 		return nil, err
 	}
-	if err := s.userRepo.UpdateWithRoles(user, roleIDs); err != nil {
+	var bookIDs *[]uint
+	if input.BookIDs != nil && !sameIDs(*input.BookIDs, user.BookIDs) {
+		ids, err := s.resolveBookLock(actor, user.OrganizationID, *input.BookIDs, false)
+		if err != nil {
+			return nil, err
+		}
+		bookIDs = &ids
+	}
+	if err := s.userRepo.UpdateWithRoles(user, roleIDs, bookIDs); err != nil {
 		return nil, err
 	}
 	return user, nil
@@ -399,6 +418,61 @@ func (s *UserService) checkTarget(actor Actor, target *models.User) error {
 		}
 	}
 	return nil
+}
+
+// resolveBookLock validates the cash books a user is being locked to and
+// returns the deduplicated set (empty = no lock).
+//
+//   - Every book must belong to organization orgID. Platform accounts
+//     (orgID 0) are never locked.
+//   - An actor who is locked themselves cannot hand out more than they
+//     see: the set must be a non-empty subset of their own books. On
+//     create, an empty request from such an actor inherits their lock.
+func (s *UserService) resolveBookLock(actor Actor, orgID uint, ids []uint, inherit bool) ([]uint, error) {
+	own, err := s.userRepo.BookIDs(actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	locked := actor.OrgID != 0 && len(own) > 0
+	if len(ids) == 0 {
+		switch {
+		case !locked:
+			return []uint{}, nil
+		case inherit:
+			ids = own
+		default:
+			return nil, ErrBookLockEscalation
+		}
+	}
+	if orgID == 0 {
+		return nil, ErrBookLockPlatform
+	}
+	actorScope := repository.Scope{OrgID: actor.OrgID}
+	if locked {
+		actorScope.BookIDs = own
+	}
+	seen := map[uint]bool{}
+	out := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if !actorScope.AllowsBook(id) {
+			return nil, ErrBookLockEscalation
+		}
+		book, err := s.bookRepo.FindByID(id, repository.Scope{OrgID: orgID})
+		if err != nil {
+			return nil, err
+		}
+		// OrganizationID is compared explicitly: a platform actor's scope
+		// (OrgID 0) is not filtered by organization.
+		if book == nil || book.OrganizationID != orgID {
+			return nil, ErrBookLockInvalid
+		}
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 // resolveRoles loads the requested roles (deduplicated) of organization
@@ -498,6 +572,9 @@ var (
 	ErrTargetOutranks        = errors.New("tidak bisa mengelola user yang hak aksesnya melebihi hak akses Anda")
 	ErrSelfRoleChange        = errors.New("tidak bisa mengubah role akun Anda sendiri; minta admin lain")
 	ErrSelfDeactivate        = errors.New("tidak bisa menonaktifkan akun Anda sendiri")
+	ErrBookLockInvalid       = errors.New("buku kas yang dipilih tidak ditemukan")
+	ErrBookLockEscalation    = errors.New("akun Anda dibatasi ke buku kas tertentu; hanya bisa memberi akses ke buku kas tersebut")
+	ErrBookLockPlatform      = errors.New("akun platform tidak bisa dibatasi ke buku kas tertentu")
 	ErrActorUnknown          = errors.New("akun Anda tidak ditemukan atau nonaktif; silakan login ulang")
 )
 

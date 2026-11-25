@@ -1,9 +1,12 @@
 // Dropdown untuk aksi per baris di tabel (Edit, Hapus, Upload, Riwayat, dll).
-// Di mobile tampil sebagai popup tengah (modal), di desktop sebagai dropdown biasa.
+// Bawaan: bottom sheet di mobile, dropdown biasa di desktop.
+// Dengan prop `modal`, tombol aksi langsung membuka popup modal di semua
+// ukuran layar (dipakai di tabel transaksi).
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, MoreHorizontal } from "lucide-react"
+import { ModalShell } from "@/components/UserModal"
 
 export interface RowAction {
   label: string
@@ -13,7 +16,13 @@ export interface RowAction {
   destructive?: boolean
 }
 
-export function RowActions({ actions }: { actions: RowAction[] }) {
+interface RowActionsProps {
+  actions: RowAction[]
+  /** Bila diisi, aksi tampil sebagai popup modal (bukan dropdown). */
+  modal?: { title: string; description?: ReactNode }
+}
+
+export function RowActions({ actions, modal }: RowActionsProps) {
   const [open, setOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -23,7 +32,8 @@ export function RowActions({ actions }: { actions: RowAction[] }) {
   }, [])
 
   useEffect(() => {
-    if (!open) return
+    // Mode modal: ESC & klik-luar sudah ditangani ModalShell.
+    if (!open || modal) return
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
@@ -36,7 +46,50 @@ export function RowActions({ actions }: { actions: RowAction[] }) {
       document.removeEventListener("mousedown", handler)
       document.removeEventListener("keydown", keyHandler)
     }
-  }, [open])
+  }, [open, modal])
+
+  if (modal) {
+    return (
+      <>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label={modal.title}
+          onClick={() => setOpen(true)}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </Button>
+        <ModalShell
+          open={open}
+          onClose={() => setOpen(false)}
+          title={modal.title}
+          description={modal.description}
+          size="sm"
+        >
+          <div className="grid gap-2 text-left">
+            {actions.map((a, i) => (
+              <button
+                key={i}
+                className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50 ${
+                  a.destructive
+                    ? "border-destructive/30 text-destructive hover:bg-destructive/10"
+                    : ""
+                }`}
+                onClick={() => {
+                  setOpen(false)
+                  a.onClick()
+                }}
+                disabled={a.disabled}
+              >
+                {a.icon}
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </ModalShell>
+      </>
+    )
+  }
 
   const items = (
     <>

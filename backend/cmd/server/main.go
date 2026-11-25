@@ -41,12 +41,20 @@ var defaultPermissionCatalog = []models.Permission{
 	{Key: "transactions:read", Name: "View Transactions"},
 	{Key: "transactions:write", Name: "Edit Transactions"},
 	{Key: "transactions:delete", Name: "Delete Transactions"},
+	// Pembagian Warga (daftar warga + pembagian buku kas PHBI)
+	{Key: "distributions:read", Name: "View Resident Distributions"},
+	{Key: "distributions:write", Name: "Edit Resident Distributions"},
+	{Key: "distributions:delete", Name: "Delete Resident Distributions"},
 	// Laporan
 	{Key: "reports:read", Name: "View Reports"},
 	// Jadwal Pengajian & Khatib
 	{Key: "lecturings:read", Name: "View Lecture Schedules"},
 	{Key: "lecturings:write", Name: "Edit Lecture Schedules"},
 	{Key: "lecturings:delete", Name: "Delete Lecture Schedules"},
+	// Layar TV (Display)
+	{Key: "display:read", Name: "Open TV Display"},
+	// Security (ganti password sendiri)
+	{Key: "security:read", Name: "Open Security Page"},
 	// Profil Masjid
 	{Key: "settings:read", Name: "View Settings"},
 	{Key: "settings:write", Name: "Edit Settings"},
@@ -57,6 +65,8 @@ var defaultPermissionCatalog = []models.Permission{
 	{Key: "roles:read", Name: "View Roles"},
 	{Key: "roles:write", Name: "Edit Roles"},
 	{Key: "roles:delete", Name: "Delete Roles"},
+	// Audit log (siapa melakukan apa, kapan)
+	{Key: "audit:read", Name: "View Audit Log"},
 }
 
 type defaultRoleBinding struct {
@@ -94,15 +104,17 @@ var defaultRoleBindings = []defaultRoleBinding{
 			"books:read", "books:write", "books:delete",
 			"categories:read", "categories:write", "categories:delete",
 			"transactions:read", "transactions:write", "transactions:delete",
+			"distributions:read", "distributions:write", "distributions:delete",
 			"reports:read",
 			"lecturings:read", "lecturings:write", "lecturings:delete",
+			"display:read", "security:read",
 			"settings:read", "settings:write",
 		},
 	},
 	{
 		Name:        "user",
 		Description: "Default role for new accounts. Read-only dashboard & reports.",
-		Keys:        []string{"dashboard:read", "reports:read"},
+		Keys:        []string{"dashboard:read", "reports:read", "display:read", "security:read"},
 	},
 }
 
@@ -125,11 +137,15 @@ func main() {
 		&models.Permission{},
 		&models.Organization{},
 		&models.Book{},
+		&models.UserBook{},
 		&models.Category{},
 		&models.Transaction{},
+		&models.BookSettlement{},
 		&models.MasjidSettings{},
 		&models.PasswordResetToken{},
 		&models.Lecturing{},
+		&models.Resident{},
+		&models.AuditLog{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -145,6 +161,7 @@ func main() {
 	bookRepo := repository.NewBookRepository(db)
 	categoryRepo := repository.NewCategoryRepository(db)
 	transactionRepo := repository.NewTransactionRepository(db)
+	settlementRepo := repository.NewBookSettlementRepository(db)
 	settingsRepo := repository.NewMasjidSettingsRepository(db)
 	lecturingRepo := repository.NewLecturingRepository(db)
 
@@ -178,11 +195,12 @@ func main() {
 		service.SMTPConfig{Host: env.SMTPHost, Port: env.SMTPPort, User: env.SMTPUser, Password: env.SMTPPassword, From: env.SMTPFrom},
 		env.FrontendURL,
 	)
-	userService := service.NewUserService(userRepo, roleRepo, authService)
+	userService := service.NewUserService(userRepo, roleRepo, bookRepo, authService)
 	roleService := service.NewRoleService(roleRepo, permissionRepo, userRepo)
 	bookService := service.NewBookService(bookRepo)
 	categoryService := service.NewCategoryService(categoryRepo, bookRepo)
 	transactionService := service.NewTransactionService(transactionRepo, categoryRepo, bookRepo)
+	settlementService := service.NewSettlementService(settlementRepo, bookRepo, categoryRepo, transactionRepo)
 	settingsService := service.NewMasjidSettingsService(settingsRepo)
 	lecturingService := service.NewLecturingService(lecturingRepo)
 
@@ -199,11 +217,13 @@ func main() {
 	}
 	userHandler := handlers.NewUserHandler(userService)
 	roleHandler := handlers.NewRoleHandler(roleService, permissionRepo)
-	bookHandler := handlers.NewBookHandler(bookService)
+	bookHandler := handlers.NewBookHandler(bookService, settlementService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
-	transactionHandler := handlers.NewTransactionHandler(transactionService)
+	transactionHandler := handlers.NewTransactionHandler(transactionService, settingsService)
 	settingsHandler := handlers.NewMasjidSettingsHandler(settingsService)
 	lecturingHandler := handlers.NewLecturingHandler(lecturingService)
+	auditHandler := handlers.NewAuditHandler(repository.NewAuditRepository(db))
+	residentHandler := handlers.NewResidentHandler(service.NewResidentService(repository.NewResidentRepository(db)), settingsService)
 	publicDisplayHandler := handlers.NewPublicDisplayHandler(settingsService, transactionService, lecturingService, bookService)
 
 	// ─── Fiber App ─────────────────────────────────────────────────────────────
@@ -253,6 +273,10 @@ func main() {
 		MaxAge:           600,
 	}))
 
+	// Audit trail: records every successful change, export and login
+	// attempt after the request has been handled.
+	app.Use(auditHandler.Middleware())
+
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "Buku Masjid API",
@@ -274,7 +298,10 @@ func main() {
 		transactionHandler,
 		settingsHandler,
 		lecturingHandler,
+		residentHandler,
+		auditHandler,
 		publicDisplayHandler,
+		middleware.BookScope(userRepo.BookIDs),
 		env.JWTSecret,
 	)
 
@@ -366,6 +393,9 @@ func bootstrapRBAC(
 	for _, p := range perms {
 		permsByKey[p.Key] = p.ID
 	}
+	if err := grantSidebarPermissions(db, newKeys, permsByKey); err != nil {
+		return err
+	}
 
 	for _, binding := range defaultRoleBindings {
 		existing, err := roleRepo.FindByName(0, binding.Name)
@@ -402,6 +432,59 @@ func bootstrapRBAC(
 		}
 	}
 	return backfillOrganizationRoles(db)
+}
+
+// grantSidebarPermissions keeps existing roles working when a sidebar menu
+// that used to be open to everyone (or shared another menu's permission)
+// gets its own permission key. It runs once, when the key is first added
+// to the catalog, so an admin's later removals are never undone:
+//
+//   - display:read / security:read / dashboard:read — these menus were
+//     visible to every signed-in user, so every role that grants anything
+//     receives them. dashboard:read already existed but was not enforced;
+//     it is granted together with display:read (same release).
+//   - distributions:* — Pembagian Warga used the transactions:* keys, so a
+//     role receives the distributions action it already had on transactions.
+//
+// Roles with no permissions at all are left empty (they grant nothing on
+// purpose).
+func grantSidebarPermissions(db *gorm.DB, newKeys map[string]bool, permsByKey map[string]uint) error {
+	toAllRoles := func(key string) error {
+		return db.Exec(`INSERT INTO role_permissions (role_id, permission_id)
+			SELECT r.id, ? FROM roles r
+			WHERE r.deleted_at IS NULL
+			  AND r.id IN (SELECT role_id FROM role_permissions)
+			  AND r.id NOT IN (SELECT role_id FROM role_permissions WHERE permission_id = ?)`,
+			permsByKey[key], permsByKey[key]).Error
+	}
+	mirror := func(key, from string) error {
+		return db.Exec(`INSERT INTO role_permissions (role_id, permission_id)
+			SELECT r.id, ? FROM roles r
+			WHERE r.deleted_at IS NULL
+			  AND r.id IN (SELECT role_id FROM role_permissions WHERE permission_id = ?)
+			  AND r.id NOT IN (SELECT role_id FROM role_permissions WHERE permission_id = ?)`,
+			permsByKey[key], permsByKey[from], permsByKey[key]).Error
+	}
+	if newKeys["display:read"] {
+		for _, key := range []string{"display:read", "dashboard:read"} {
+			if err := toAllRoles(key); err != nil {
+				return err
+			}
+		}
+	}
+	if newKeys["security:read"] {
+		if err := toAllRoles("security:read"); err != nil {
+			return err
+		}
+	}
+	for _, action := range []string{"read", "write", "delete"} {
+		if newKeys["distributions:"+action] {
+			if err := mirror("distributions:"+action, "transactions:"+action); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrateRoleIndexes replaces the old global unique index on roles.name
@@ -522,7 +605,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 			// explicit way to restore access.
 			user.Password = hashed
 			user.IsActive = true
-			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user)); err != nil {
+			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user), nil); err != nil {
 				return err
 			}
 			log.Printf("[seed] %s still had the default password; rotated to SEED_SUPERADMIN_PASSWORD and activated", seed.Email)
@@ -530,7 +613,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 		}
 		if user.IsActive {
 			user.IsActive = false
-			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user)); err != nil {
+			if err := userRepo.UpdateWithRoles(user, roleIDsOf(user), nil); err != nil {
 				return err
 			}
 			log.Printf("[seed] WARNING: %s still had its default password and has been deactivated", seed.Email)
@@ -564,7 +647,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 				Password:       hashed,
 				IsActive:       true,
 				OrganizationID: 0,
-			}, []uint{role.ID}); err != nil {
+			}, []uint{role.ID}, nil); err != nil {
 				return err
 			}
 			log.Printf("[seed] superadmin %s created", email)
@@ -577,7 +660,7 @@ func seedProductionSuperAdmin(db *gorm.DB, userRepo *repository.UserRepository, 
 			}
 			existing.Password = hashed
 			existing.IsActive = true
-			if err := userRepo.UpdateWithRoles(existing, roleIDsOf(existing)); err != nil {
+			if err := userRepo.UpdateWithRoles(existing, roleIDsOf(existing), nil); err != nil {
 				return err
 			}
 			log.Printf("[seed] superadmin %s synced to SEED_SUPERADMIN_PASSWORD and activated", email)
@@ -671,7 +754,7 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 				Password:       string(hashedPassword),
 				IsActive:       true,
 				OrganizationID: orgID,
-			}, roleIDs); err != nil {
+			}, roleIDs, nil); err != nil {
 				return err
 			}
 			continue
@@ -681,7 +764,7 @@ func seedDevelopmentUsers(db *gorm.DB, userRepo *repository.UserRepository, role
 		user.Password = string(hashedPassword)
 		user.IsActive = true
 		user.OrganizationID = orgID
-		if err := userRepo.UpdateWithRoles(user, roleIDs); err != nil {
+		if err := userRepo.UpdateWithRoles(user, roleIDs, nil); err != nil {
 			return err
 		}
 	}

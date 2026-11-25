@@ -39,33 +39,44 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
-  frontend:
-    # TEMP (Aug 2026, per user request): FE production dijalankan SAMA seperti
-    # local dev mode — Vite dev server (`npm run dev`), BUKAN static build + nginx.
-    #   • image node:22-alpine (bukan nginx:alpine) — vite dev server di dalam
-    #     container. esbuild binary beda per platform (host glibc vs alpine/musl)
-    #     → node_modules HOST tidak bisa dipakai; container install sendiri ke
-    #     named volume `fe_node_modules` (TIDAK menimpa node_modules host).
-    #   • volumes: ./frontend:/app → source + frontend/.env dibaca langsung
-    #     oleh vite (VITE_PORT dari frontend/.env = port local dev).
-    #   • command: npm install + `npm run dev -- --host 0.0.0.0` → bind semua
-    #     interface supaya reachable dari Traefik + host port mapping.
-    #   • ports "${VITE_PORT:-5173}:${VITE_PORT:-5173}" → localhost:VITE_PORT
-    #     juga bisa diakses (sama seperti local dev).
-    #   • environment VITE_PROXY_TARGET=http://backend:${APP_PORT:-8080} →
-    #     vite proxy /api ke backend service di Docker network (bukan
-    #     localhost — di dalam container localhost = container sendiri).
+  frontend-build:
+    # FE production = static build sekali jalan (BUKAN dev server / --watch).
+    #   • Build ke /tmp/dist dulu, baru disalin ke volume `fe_dist` → nginx
+    #     tetap menyajikan versi lama selama build (tidak ada 404 sesaat).
+    #   • node_modules container di named volume `fe_node_modules` (esbuild
+    #     binary alpine/musl beda dengan host glibc).
+    #   • restart "no" → container selesai (Exited 0) dan tidak memakai RAM.
+    #   • Mode build = production → VITE_API_URL dibaca dari
+    #     frontend/.env.production (kosong = /api relatif lewat nginx).
     image: node:22-alpine
     working_dir: /app
     volumes:
       - ./frontend:/app
       - fe_node_modules:/app/node_modules
-    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0"
+      - fe_dist:/app/dist
+    command: sh -c "npm install --legacy-peer-deps && npx vite build --outDir /tmp/dist && find /app/dist -mindepth 1 -delete && cp -a /tmp/dist/. /app/dist/"
     environment:
-      - VITE_PROXY_TARGET=http://backend:${APP_PORT:-8080}
       - VITE_BASE_DOMAIN=${BASE_DOMAIN:-}
+    restart: "no"
+    networks:
+      - default
+
+  frontend:
+    # Nginx serve hasil build dari volume `fe_dist` (read-only) + proxy /api
+    # dan /uploads ke backend. nginx.conf di-mount sebagai template —
+    # entrypoint nginx:alpine menjalankan envsubst untuk ${BACKEND_PORT}
+    # (hanya var yang terdefinisi; $host, $uri dll tidak tersentuh).
+    image: nginx:alpine
+    volumes:
+      - fe_dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      - BACKEND_PORT=${APP_PORT:-8080}
+    depends_on:
+      frontend-build:
+        condition: service_completed_successfully
     ports:
-      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
+      - "${VITE_PORT:-5173}:80"
     restart: unless-stopped
     networks:
       - default
@@ -77,11 +88,7 @@ services:
       #   SUBDOMAIN: Host(`APP.DOMAIN`)
       - "traefik.http.routers.masjidannur-fe.rule=Host(`masjidannur.my.id`)"
       - "traefik.http.routers.masjidannur-fe.entrypoints=web"
-      # FE container listen port = VITE_PORT (vite dev server, dibaca dari
-      # frontend/.env). Root .env sekarang punya VITE_PORT (generate_env_files
-      # menulis VITE_PORT=${FE_PORT}) → placeholder resolve per-app,
-      # mis. VITE_PORT=5174 → Traefik routes ke 5174 di dalam container.
-      - "traefik.http.services.masjidannur-fe.loadbalancer.server.port=${VITE_PORT:-5173}"
+      - "traefik.http.services.masjidannur-fe.loadbalancer.server.port=80"
   backend:
     # Backend tetap di-build INSIDE container via `command:` supaya host TIDAK
     # butuh Go toolchain (cukup Docker + Node.js).
@@ -107,8 +114,13 @@ services:
       - APP_ENV=production
     restart: unless-stopped
     networks:
-      - default
-      - traefik-public
+      default:
+        # Alias unik untuk nginx: nama service "backend" juga dipakai app lain
+        # di traefik-public, sehingga DNS "backend" bisa resolve ke backend
+        # project lain (502). Alias di network privat ini hanya milik masjidannur.
+        aliases:
+          - masjidannur-api
+      traefik-public: {}
     labels:
       - "traefik.enable=true"
       # API hostname: resolved by create_new_project based on DOMAIN_MODE
@@ -156,6 +168,7 @@ services:
 #                        (user-defined external network, BUKAN default bridge)
 # ──────────────────────────────────────────────────────────────────────────────
 volumes:
+  fe_dist:
   # Named volume untuk node_modules container (Alpine/musl build). Container
   # menjalankan `npm install` sendiri di volume ini — node_modules host milik
   # user TIDAK disentuh (cek runsh check_node_modules_owner).

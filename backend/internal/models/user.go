@@ -31,9 +31,21 @@ type User struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 
+	// BookIDs are the cash books this user is locked to (user_books).
+	// Empty = every book of the organization. Filled by UserRepository.
+	BookIDs []uint `gorm:"-" json:"book_ids"`
+
 	// Read-only flags for the admin UI, filled by AfterFind.
 	HasPassword  bool `gorm:"-" json:"has_password"`
 	GoogleLinked bool `gorm:"-" json:"google_linked"`
+}
+
+// UserBook locks a user to one cash book. A user with no rows sees every
+// book of the organization; with rows, only those books (and their
+// categories, transactions and reports).
+type UserBook struct {
+	UserID uint `gorm:"primaryKey;autoIncrement:false" json:"user_id"`
+	BookID uint `gorm:"primaryKey;autoIncrement:false;index" json:"book_id"`
 }
 
 // AfterFind derives the UI flags without exposing the hash or Google ID.

@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route } from "react-router"
-import { AuthProvider } from "@/context/AuthContext"
+import { BrowserRouter, Navigate, Routes, Route } from "react-router"
+import { AuthProvider, useAuth } from "@/context/AuthContext"
+import { navItems } from "@/lib/nav"
 import ProtectedRoute from "@/components/ProtectedRoute"
 import AdminLayout from "@/components/AdminLayout"
 import LandingPage from "@/pages/LandingPage"
@@ -16,8 +17,26 @@ import BooksPage from "@/pages/BooksPage"
 import CategoriesPage from "@/pages/CategoriesPage"
 import TransactionsPage from "@/pages/TransactionsPage"
 import ReportsPage from "@/pages/ReportsPage"
+import DistributionsPage from "@/pages/DistributionsPage"
+import AuditPage from "@/pages/AuditPage"
 import LecturingsPage from "@/pages/LecturingsPage"
 import PublicDisplayPage from "@/pages/PublicDisplayPage"
+
+// Halaman awal /admin: Dashboard bila role mengizinkan, kalau tidak
+// langsung ke menu pertama yang boleh dibuka.
+function AdminIndex() {
+  const { hasPermission } = useAuth()
+  if (hasPermission("dashboard:read")) return <AdminDashboard />
+  const first = navItems.find(
+    (item) => item.href.startsWith("/admin/") && item.permission && hasPermission(item.permission),
+  )
+  if (first) return <Navigate to={first.href} replace />
+  return (
+    <div className="p-8 text-center text-sm text-muted-foreground">
+      Role Anda belum diberi akses ke menu mana pun. Hubungi admin masjid.
+    </div>
+  )
+}
 
 export default function App() {
   return (
@@ -31,7 +50,7 @@ export default function App() {
           <Route
             path="/display"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredPermission="display:read">
                 <PublicDisplayPage />
               </ProtectedRoute>
             }
@@ -39,7 +58,7 @@ export default function App() {
           <Route
             path="/display/:slug"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredPermission="display:read">
                 <PublicDisplayPage />
               </ProtectedRoute>
             }
@@ -58,14 +77,30 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<AdminDashboard />} />
+            <Route index element={<AdminIndex />} />
             <Route path="books" element={<BooksPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="transactions" element={<TransactionsPage />} />
+            <Route path="distributions" element={<DistributionsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="lecturings" element={<LecturingsPage />} />
             <Route path="users" element={<AdminUsers />} />
-            <Route path="security" element={<SecurityPage />} />
+            <Route
+              path="audit"
+              element={
+                <ProtectedRoute requiredPermission="audit:read">
+                  <AuditPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="security"
+              element={
+                <ProtectedRoute requiredPermission="security:read">
+                  <SecurityPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="backup" element={<BackupPage />} />
           </Route>

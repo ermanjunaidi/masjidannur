@@ -42,9 +42,9 @@ func (r *BookRepository) Create(book *models.Book) error {
 }
 
 // FindByID looks up a live book scoped by org/branch.
-func (r *BookRepository) FindByID(id, orgID, branchID uint) (*models.Book, error) {
+func (r *BookRepository) FindByID(id uint, sc Scope) (*models.Book, error) {
 	var book models.Book
-	err := scopeBranch(r.db, orgID, branchID).First(&book, id).Error
+	err := scopeBooks(r.db, sc, "id").First(&book, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -55,9 +55,9 @@ func (r *BookRepository) FindByID(id, orgID, branchID uint) (*models.Book, error
 }
 
 // FindAll returns live books scoped by org/branch, newest first.
-func (r *BookRepository) FindAll(orgID, branchID uint) ([]models.Book, error) {
+func (r *BookRepository) FindAll(sc Scope) ([]models.Book, error) {
 	var books []models.Book
-	err := scopeBranch(r.db, orgID, branchID).Order("id DESC").Find(&books).Error
+	err := scopeBooks(r.db, sc, "id").Order("id DESC").Find(&books).Error
 	return books, err
 }
 
@@ -90,9 +90,9 @@ func (r *CategoryRepository) Create(cat *models.Category) error {
 }
 
 // FindByID looks up a live category scoped by org/branch.
-func (r *CategoryRepository) FindByID(id, orgID, branchID uint) (*models.Category, error) {
+func (r *CategoryRepository) FindByID(id uint, sc Scope) (*models.Category, error) {
 	var cat models.Category
-	err := scopeBranch(r.db, orgID, branchID).First(&cat, id).Error
+	err := scopeBooks(r.db, sc, "book_id").First(&cat, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -103,9 +103,9 @@ func (r *CategoryRepository) FindByID(id, orgID, branchID uint) (*models.Categor
 }
 
 // FindAll returns live categories, optionally filtered by book and group.
-func (r *CategoryRepository) FindAll(orgID, branchID, bookID uint, group string) ([]models.Category, error) {
+func (r *CategoryRepository) FindAll(sc Scope, bookID uint, group string) ([]models.Category, error) {
 	var cats []models.Category
-	q := scopeBranch(r.db, orgID, branchID)
+	q := scopeBooks(r.db, sc, "book_id")
 	if bookID > 0 {
 		q = q.Where("book_id = ?", bookID)
 	}
@@ -172,9 +172,9 @@ func (r *TransactionRepository) Delete(id uint) error {
 }
 
 // FindByID looks up a live transaction scoped by org/branch.
-func (r *TransactionRepository) FindByID(id, orgID, branchID uint) (*models.Transaction, error) {
+func (r *TransactionRepository) FindByID(id uint, sc Scope) (*models.Transaction, error) {
 	var tx models.Transaction
-	err := scopeBranch(r.db, orgID, branchID).First(&tx, id).Error
+	err := scopeBooks(r.db, sc, "book_id").First(&tx, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -184,11 +184,11 @@ func (r *TransactionRepository) FindByID(id, orgID, branchID uint) (*models.Tran
 	return &tx, nil
 }
 
-// List returns live transactions with optional filters: book, category,
-// type, date range (inclusive), and a text search over description/
-// partner_name/ref_no. Results include Book/Category/Creator preloads.
-func (r *TransactionRepository) List(orgID, branchID, bookID, categoryID uint, txType, from, to, q string) ([]models.Transaction, error) {
-	query := scopeBranch(r.db.Model(&models.Transaction{}), orgID, branchID)
+// filtered builds the scoped transaction query shared by List and
+// ListForExport: book, category, type, date range (inclusive), and a text
+// search over description/partner_name/ref_no/category name.
+func (r *TransactionRepository) filtered(sc Scope, bookID, categoryID uint, txType, from, to, q string) *gorm.DB {
+	query := scopeBooks(r.db.Model(&models.Transaction{}), sc, "book_id")
 	if bookID > 0 {
 		query = query.Where("book_id = ?", bookID)
 	}
@@ -207,10 +207,63 @@ func (r *TransactionRepository) List(orgID, branchID, bookID, categoryID uint, t
 	if q != "" {
 		like := "%" + q + "%"
 		query = query.Where(
-			"description ILIKE ? OR partner_name ILIKE ? OR ref_no ILIKE ?",
+			"description ILIKE ? OR partner_name ILIKE ? OR ref_no ILIKE ? OR category_id IN (?)",
 			like, like, like,
+			r.db.Model(&models.Category{}).Select("id").Where("name ILIKE ?", like),
 		)
 	}
+	return query
+}
+
+// ListForExport returns every matching transaction, oldest first (the
+// order of a paper cash book), without List's 1000-row page cap. limit
+// bounds the result so one request cannot exhaust memory; callers pass
+// max+1 to detect an oversized export.
+func (r *TransactionRepository) ListForExport(sc Scope, bookID uint, txType, from, to, q string, limit int) ([]models.Transaction, error) {
+	var txs []models.Transaction
+	err := r.filtered(sc, bookID, 0, txType, from, to, q).
+		Preload("Book", func(db *gorm.DB) *gorm.DB { return db.Unscoped() }).
+		Preload("Category", func(db *gorm.DB) *gorm.DB { return db.Unscoped() }).
+		Order("date ASC, id ASC").
+		Limit(limit).
+		Find(&txs).Error
+	return txs, err
+}
+
+// ListDistributions returns every "pembagian ke warga" row of a book,
+// ordered for the printed list (RW, RT, name).
+func (r *TransactionRepository) ListDistributions(sc Scope, bookID uint) ([]models.Transaction, error) {
+	var txs []models.Transaction
+	err := scopeBooks(r.db.Model(&models.Transaction{}), sc, "book_id").
+		Where("book_id = ? AND is_distribution = ?", bookID, true).
+		Order("rw ASC, rt ASC, partner_name ASC, id ASC").
+		Find(&txs).Error
+	return txs, err
+}
+
+// DistributionTotal is one (type, is_distribution) bucket of a book's totals.
+type DistributionTotal struct {
+	Type           string
+	IsDistribution bool
+	Count          int64
+	Amount         float64
+}
+
+// DistributionTotals sums money of a book per type/distribution flag.
+func (r *TransactionRepository) DistributionTotals(sc Scope, bookID uint) ([]DistributionTotal, error) {
+	var rows []DistributionTotal
+	err := scopeBooks(r.db.Model(&models.Transaction{}), sc, "book_id").
+		Where("book_id = ?", bookID).
+		Select("type, is_distribution, COUNT(*) AS count, COALESCE(SUM(amount),0) AS amount").
+		Group("type, is_distribution").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// List returns the newest 1000 live transactions matching the filters
+// (see filtered). Results include Book/Category/Creator preloads.
+func (r *TransactionRepository) List(sc Scope, bookID, categoryID uint, txType, from, to, q string) ([]models.Transaction, error) {
+	query := r.filtered(sc, bookID, categoryID, txType, from, to, q)
 	var txs []models.Transaction
 	err := query.
 		Preload("Book", func(db *gorm.DB) *gorm.DB { return db.Unscoped() }).
@@ -224,13 +277,13 @@ func (r *TransactionRepository) List(orgID, branchID, bookID, categoryID uint, t
 
 // SumByType returns (total pemasukan, total pengeluaran) for the given
 // filters. Used by the dashboard and monthly report.
-func (r *TransactionRepository) SumByType(orgID, branchID, bookID uint, from, to string) (income float64, expense float64, err error) {
+func (r *TransactionRepository) SumByType(sc Scope, bookID uint, from, to string) (income float64, expense float64, err error) {
 	type aggRow struct {
 		Type  string
 		Total float64
 	}
 	var rows []aggRow
-	q := scopeBranch(r.db.Model(&models.Transaction{}), orgID, branchID).
+	q := scopeBooks(r.db.Model(&models.Transaction{}), sc, "book_id").
 		Select("type, COALESCE(SUM(amount),0) AS total").
 		Group("type")
 	if bookID > 0 {
@@ -267,6 +320,70 @@ func repoDateUpper(day string) string {
 	// kept as helper for future formats.)
 	_ = day
 	return day
+}
+
+// ─── BookSettlementRepository ────────────────────────────────────────────────
+
+// BookSettlementRepository handles the closing record of PHBI books.
+type BookSettlementRepository struct {
+	db *gorm.DB
+}
+
+// NewBookSettlementRepository creates a new BookSettlementRepository.
+func NewBookSettlementRepository(db *gorm.DB) *BookSettlementRepository {
+	return &BookSettlementRepository{db: db}
+}
+
+// FindByBook returns a book's handover record, if any.
+func (r *BookSettlementRepository) FindByBook(bookID uint) (*models.BookSettlement, error) {
+	var s models.BookSettlement
+	err := r.db.Preload("Book").Preload("DestinationBook").
+		Where("book_id = ?", bookID).First(&s).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// CreateWithTransactions writes the handover's ledger entries and the
+// settlement record atomically. txs[0] is the pengeluaran in the PHBI book,
+// txs[1] (optional) the pemasukan in the destination book.
+func (r *BookSettlementRepository) CreateWithTransactions(
+	s *models.BookSettlement, txs []*models.Transaction,
+) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, t := range txs {
+			if err := tx.Create(t).Error; err != nil {
+				return err
+			}
+		}
+		if len(txs) > 0 {
+			s.ExpenseTransactionID = txs[0].ID
+		}
+		if len(txs) > 1 {
+			s.IncomeTransactionID = txs[1].ID
+		}
+		return tx.Create(s).Error
+	})
+}
+
+// DeleteWithTransactions cancels a handover: the ledger entries it created
+// and the settlement record are removed together.
+func (r *BookSettlementRepository) DeleteWithTransactions(s *models.BookSettlement) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, id := range []uint{s.ExpenseTransactionID, s.IncomeTransactionID} {
+			if id == 0 {
+				continue
+			}
+			if err := tx.Delete(&models.Transaction{}, id).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(&models.BookSettlement{}, s.ID).Error
+	})
 }
 
 // ─── MasjidSettingsRepository ────────────────────────────────────────────────

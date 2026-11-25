@@ -19,6 +19,7 @@ import { RowActions } from "@/components/RowActions"
 import { NumberInput } from "@/components/ui/number-input"
 import {
   Loader2,
+  FileSpreadsheet,
   ArrowDownCircle,
   ArrowUpCircle,
   Image as ImageIcon,
@@ -33,7 +34,7 @@ import {
 import { KwitansiDialog } from "@/components/KwitansiDialog"
 import { ApiError, booksApi, categoriesApi, masjidSettingsApi, transactionsApi } from "@/lib/api"
 import type { Book, Category, MasjidSettings, Transaction } from "@/lib/types"
-import { formatRupiah, todayISO } from "@/lib/types"
+import { formatKg, formatRupiah, todayISO } from "@/lib/types"
 import { buildTransactionNota, shareWhatsApp } from "@/lib/nota"
 
 function formatTxDate(date: string) {
@@ -65,6 +66,7 @@ export default function TransactionsPage() {
   // Profil masjid untuk kop & footer nota/kwitansi WhatsApp.
   const [settings, setSettings] = useState<MasjidSettings | null>(null)
   const [kwitansiTarget, setKwitansiTarget] = useState<Transaction | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     masjidSettingsApi
@@ -112,14 +114,40 @@ export default function TransactionsPage() {
   const totals = useMemo(() => {
     let income = 0
     let expense = 0
+    let riceIn = 0
+    let riceOut = 0
     filtered.forEach((t) => {
-      if (t.type === "pemasukan") income += t.amount
-      else expense += t.amount
+      if (t.type === "pemasukan") {
+        income += t.amount
+        riceIn += t.rice_kg ?? 0
+      } else {
+        expense += t.amount
+        riceOut += t.rice_kg ?? 0
+      }
     })
-    return { income, expense, net: income - expense }
+    return { income, expense, net: income - expense, riceIn, riceOut }
   }, [filtered])
 
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  // Export dibuat di server mengikuti filter yang aktif (buku, tipe,
+  // pencarian) dan memuat SEMUA transaksi yang cocok — tidak terbatas pada
+  // 1000 transaksi terbaru yang dimuat halaman ini.
+  const handleExport = async () => {
+    setExporting(true)
+    setError(null)
+    try {
+      await transactionsApi.exportExcel({
+        book_id: bookFilter === "all" ? undefined : bookFilter,
+        type: typeFilter === "all" ? undefined : typeFilter,
+        q: search.trim() || undefined,
+      })
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Gagal membuat file Excel")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const handleDelete = async () => {
     if (!pendingDelete) return
@@ -182,6 +210,11 @@ export default function TransactionsPage() {
             <div className="text-xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
               {formatRupiah(totals.income)}
             </div>
+            {totals.riceIn > 0 && (
+              <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                + Beras {formatKg(totals.riceIn)}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -193,6 +226,11 @@ export default function TransactionsPage() {
             <div className="text-xl font-bold tabular-nums text-rose-600 dark:text-rose-400">
               {formatRupiah(totals.expense)}
             </div>
+            {totals.riceOut > 0 && (
+              <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                + Beras {formatKg(totals.riceOut)}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -202,6 +240,11 @@ export default function TransactionsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold tabular-nums">{formatRupiah(totals.net)}</div>
+            {(totals.riceIn > 0 || totals.riceOut > 0) && (
+              <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                Sisa beras {formatKg(totals.riceIn - totals.riceOut)}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -249,6 +292,20 @@ export default function TransactionsPage() {
               <option value="pemasukan">Pemasukan</option>
               <option value="pengeluaran">Pengeluaran</option>
             </select>
+            <Button
+              variant="outline"
+              className="sm:ml-auto"
+              onClick={() => void handleExport()}
+              disabled={exporting || loading || filtered.length === 0}
+              title="Unduh semua transaksi sesuai filter sebagai Excel"
+            >
+              {exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" />
+              )}
+              Export Excel
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -300,6 +357,14 @@ export default function TransactionsPage() {
                         <span className="text-xs text-muted-foreground">
                           {t.category?.name ?? "—"}
                         </span>
+                        {t.is_settlement && (
+                          <Badge
+                            variant="outline"
+                            className="bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20"
+                          >
+                            Serah terima PHBI
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="hidden max-w-[280px] md:table-cell">
@@ -318,11 +383,38 @@ export default function TransactionsPage() {
                           : "text-rose-600 dark:text-rose-400"
                       }`}
                     >
-                      {t.type === "pemasukan" ? "+" : "−"}
-                      {formatRupiah(t.amount)}
+                      {/* Pemasukan berupa beras saja: tampilkan kg-nya, bukan Rp 0. */}
+                      {(t.amount > 0 || !t.rice_kg) && (
+                        <>
+                          {t.type === "pemasukan" ? "+" : "−"}
+                          {formatRupiah(t.amount)}
+                        </>
+                      )}
+                      {!!t.rice_kg && (
+                        <span className={t.amount > 0 ? "block text-xs font-medium" : ""}>
+                          {t.type === "pemasukan" ? "+" : "−"}
+                          {formatKg(t.rice_kg)} beras
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <RowActions
+                        modal={{
+                          title: "Aksi Transaksi",
+                          description: (
+                            <>
+                              {formatTxDate(t.date)} · {t.category?.name ?? "—"} ·{" "}
+                              <b>
+                                {(t.amount > 0 || !t.rice_kg) &&
+                                  `${t.type === "pemasukan" ? "+" : "−"}${formatRupiah(t.amount)}`}
+                                {t.amount > 0 && !!t.rice_kg && " · "}
+                                {!!t.rice_kg &&
+                                  `${t.type === "pemasukan" ? "+" : "−"}${formatKg(t.rice_kg)} beras`}
+                              </b>
+                              {t.description && <span className="block truncate">{t.description}</span>}
+                            </>
+                          ),
+                        }}
                         actions={[
                           {
                             label: "Kwitansi (Gambar)",
@@ -341,17 +433,23 @@ export default function TransactionsPage() {
                                 }),
                               ),
                           },
-                          {
-                            label: "Edit",
-                            icon: <Pencil className="h-4 w-4" />,
-                            onClick: () => setEditTarget(t),
-                          },
-                          {
-                            label: "Hapus",
-                            icon: <Trash2 className="h-4 w-4" />,
-                            onClick: () => setPendingDelete(t),
-                            destructive: true,
-                          },
+                          // Baris serah terima PHBI ikut catatannya: ubah atau
+                          // batalkan lewat menu Buku Kas, bukan dari buku besar.
+                          ...(t.is_settlement
+                            ? []
+                            : [
+                                {
+                                  label: "Edit",
+                                  icon: <Pencil className="h-4 w-4" />,
+                                  onClick: () => setEditTarget(t),
+                                },
+                                {
+                                  label: "Hapus",
+                                  icon: <Trash2 className="h-4 w-4" />,
+                                  onClick: () => setPendingDelete(t),
+                                  destructive: true,
+                                },
+                              ]),
                         ]}
                       />
                     </TableCell>
@@ -411,7 +509,19 @@ export default function TransactionsPage() {
         description={
           <>
             Transaksi <b>{pendingDelete?.description || pendingDelete?.category?.name}</b> sebesar{" "}
-            <b>{pendingDelete ? formatRupiah(pendingDelete.amount) : ""}</b> akan dihapus.
+            <b>
+              {pendingDelete
+                ? [
+                    pendingDelete.amount > 0 || !pendingDelete.rice_kg
+                      ? formatRupiah(pendingDelete.amount)
+                      : "",
+                    pendingDelete.rice_kg ? `${formatKg(pendingDelete.rice_kg)} beras` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" + ")
+                : ""}
+            </b>{" "}
+            akan dihapus.
           </>
         }
         confirmLabel="Hapus"
@@ -450,6 +560,7 @@ function TransactionModal({
     date: todayISO(),
     type: initialType,
     amount: 0,
+    rice_kg: 0,
     description: "",
     partner_name: "",
     ref_no: "",
@@ -469,6 +580,7 @@ function TransactionModal({
       date: initial?.date ?? todayISO(),
       type: initial?.type ?? initialType,
       amount: initial?.amount ?? 0,
+      rice_kg: initial?.rice_kg ?? 0,
       description: initial?.description ?? "",
       partner_name: initial?.partner_name ?? "",
       ref_no: initial?.ref_no ?? "",
@@ -489,14 +601,19 @@ function TransactionModal({
     [categories, form.book_id, form.type],
   )
 
+  // Buku kas bulan Ramadhan: transaksi bisa berisi uang dan beras (kg).
+  const isRamadhan = books.find((b) => b.id === Number(form.book_id))?.is_ramadhan ?? false
+
   const handleSave = async () => {
     setError(null)
     if (!form.book_id || !form.category_id) {
       setError("Buku kas dan kategori wajib dipilih")
       return
     }
-    if (!form.amount || form.amount <= 0) {
-      setError("Jumlah harus lebih besar dari 0")
+    // Beras hanya untuk buku kas Ramadhan; di sana boleh berupa beras saja.
+    const riceKg = isRamadhan ? form.rice_kg || 0 : 0
+    if ((!form.amount || form.amount <= 0) && riceKg <= 0) {
+      setError(isRamadhan ? "Isi jumlah (Rp) atau beras (kg)" : "Jumlah harus lebih besar dari 0")
       return
     }
     setSaving(true)
@@ -508,6 +625,7 @@ function TransactionModal({
           date: form.date,
           type: form.type,
           amount: form.amount,
+          rice_kg: riceKg,
           description: form.description,
           partner_name: form.partner_name,
           ref_no: form.ref_no,
@@ -517,6 +635,7 @@ function TransactionModal({
           category_id: Number(form.category_id),
           date: form.date,
           amount: form.amount,
+          rice_kg: riceKg,
           description: form.description,
           partner_name: form.partner_name,
           ref_no: form.ref_no,
@@ -614,8 +733,8 @@ function TransactionModal({
             onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
           />
         </div>
-        <div className="space-y-1.5 sm:col-span-2">
-          <Label htmlFor="tx-amount">Jumlah (Rp) *</Label>
+        <div className={`space-y-1.5 ${isRamadhan ? "" : "sm:col-span-2"}`}>
+          <Label htmlFor="tx-amount">Jumlah (Rp){isRamadhan ? "" : " *"}</Label>
           <NumberInput
             id="tx-amount"
             value={form.amount}
@@ -623,6 +742,21 @@ function TransactionModal({
             placeholder="0"
           />
         </div>
+        {isRamadhan && (
+          <div className="space-y-1.5">
+            <Label htmlFor="tx-rice">Beras (kg)</Label>
+            <NumberInput
+              id="tx-rice"
+              value={form.rice_kg}
+              onValueChange={(n) => setForm((f) => ({ ...f, rice_kg: n }))}
+              maxFraction={2}
+              placeholder="0"
+            />
+            <p className="text-xs text-muted-foreground">
+              Buku Ramadhan: isi jumlah (Rp), beras, atau keduanya.
+            </p>
+          </div>
+        )}
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="tx-desc">Keterangan</Label>
           <Input

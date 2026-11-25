@@ -1,49 +1,10 @@
 import { Link, useLocation } from "react-router"
 import { useAuth } from "@/context/AuthContext"
 import { Button } from "@/components/ui/button"
-import {
-  LayoutDashboard,
-  Users,
-  Settings,
-  LogOut,
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
-  Tags,
-  Receipt,
-  FileBarChart,
-  CalendarDays,
-  Moon,
-  Tv,
-  DatabaseBackup,
-} from "lucide-react"
+import { LogOut, BookOpen, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { navItems } from "@/lib/nav"
 import { useState } from "react"
-
-interface NavItem {
-  icon: typeof LayoutDashboard
-  label: string
-  href: string
-  permission?: string
-  /** Only the platform superadmin (organization 0). */
-  platformOnly?: boolean
-}
-
-const navItems: NavItem[] = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
-  { icon: BookOpen, label: "Buku Kas", href: "/admin/books", permission: "books:read" },
-  { icon: Tags, label: "Kategori", href: "/admin/categories", permission: "categories:read" },
-  { icon: Receipt, label: "Transaksi", href: "/admin/transactions", permission: "transactions:read" },
-  { icon: FileBarChart, label: "Laporan", href: "/admin/reports", permission: "reports:read" },
-  { icon: CalendarDays, label: "Jadwal Pengajian", href: "/admin/lecturings", permission: "lecturings:read" },
-  { icon: Tv, label: "Layar TV (Display)", href: "/display" },
-  // Access-control surface: visible to anyone with at least user listing
-  // rights (admins + delegated managers alike).
-  { icon: Users, label: "Users & Roles", href: "/admin/users", permission: "users:read" },
-  { icon: Moon, label: "Security", href: "/admin/security" },
-  { icon: Settings, label: "Settings", href: "/admin/settings", permission: "settings:read" },
-  { icon: DatabaseBackup, label: "Backup & Restore", href: "/admin/backup", platformOnly: true },
-]
 
 // `mobile` renders the sidebar inside the mobile drawer: always expanded,
 // no collapse toggle.

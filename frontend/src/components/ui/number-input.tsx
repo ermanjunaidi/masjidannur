@@ -53,26 +53,47 @@ export function NumberInput({
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value
+    let raw = e.target.value
     if (/[^\d.,]/.test(raw)) return
 
     const cursor = e.target.selectionStart ?? raw.length
-    const digitsBefore = raw.slice(0, cursor).replace(/\D/g, "").length
-    const parsed = parse(raw)
-    const formatted = fmt(parsed)
+    let formatted: string
+    if (maxFraction > 0) {
+      // Keypad angka di sebagian HP hanya punya titik: titik yang baru
+      // diketik (di posisi kursor, belum ada koma) dianggap koma desimal.
+      if (!raw.includes(",") && raw[cursor - 1] === "." && raw.length === text.length + 1) {
+        raw = raw.slice(0, cursor - 1) + "," + raw.slice(cursor)
+      }
+      // Bagian desimal dipertahankan persis seperti diketik ("2," atau
+      // "2,50"): memformat ulang dari angkanya akan membuang koma dan nol
+      // di belakang sehingga desimal tidak pernah bisa diketik.
+      const comma = raw.indexOf(",")
+      if (comma >= 0) {
+        const whole = raw.slice(0, comma).replace(/\D/g, "")
+        const frac = raw.slice(comma + 1).replace(/\D/g, "").slice(0, maxFraction)
+        formatted = `${Number(whole || "0").toLocaleString("id-ID")},${frac}`
+      } else {
+        formatted = fmt(parse(raw))
+      }
+    } else {
+      formatted = fmt(parse(raw))
+    }
+    const parsed = parse(formatted)
+    // Posisi kursor dihitung dari digit dan koma di sebelah kirinya (titik
+    // ribuan bisa bertambah/berkurang saat diformat).
+    const keep = /[\d,]/
+    const before = raw.slice(0, cursor).replace(/[^\d,]/g, "").length
 
     setText(formatted)
     onValueChange(parsed)
 
-    // Preserve cursor position relative to digit count
     requestAnimationFrame(() => {
       const el = ref.current
       if (!el) return
       let pos = 0
-      for (let seen = 0, i = 0; i < formatted.length; i++) {
-        if (/\d/.test(formatted[i])) seen++
+      for (let seen = 0, i = 0; i < formatted.length && seen < before; i++) {
+        if (keep.test(formatted[i])) seen++
         pos = i + 1
-        if (seen >= digitsBefore) break
       }
       el.setSelectionRange(pos, pos)
     })
@@ -87,6 +108,8 @@ export function NumberInput({
       value={text}
       onChange={handleChange}
       onFocus={(e) => e.target.select()}
+      // Rapikan saat keluar: "2," → "2", "2,50" → "2,5".
+      onBlur={() => setText(fmt(value))}
       placeholder={placeholder}
       className={className}
       disabled={disabled}

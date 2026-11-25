@@ -5,12 +5,17 @@
 //     close together.
 
 import type {
+  RamadhanSummary,
+  AuditLog,
+  Resident,
   AuthResponse,
   ApiErrorBody,
   Permission,
   Role,
   User,
   Book,
+  BookSettlement,
+  SettlementInfo,
   Category,
   Transaction,
   MasjidSettings,
@@ -164,12 +169,26 @@ export function fetchGoogleEnabled(): Promise<boolean> {
 export interface CreateBookPayload {
   name: string
   description?: string
+  is_ramadhan?: boolean
+  is_phbi?: boolean
 }
 
 export interface UpdateBookPayload {
   name?: string
   description?: string
   is_active?: boolean
+  is_ramadhan?: boolean
+  is_phbi?: boolean
+}
+
+export interface CreateSettlementPayload {
+  date?: string
+  /** 0 = seluruh sisa saldo buku. */
+  amount?: number
+  /** 0 = tidak disetor ke buku lain, hanya diserahkan ke bendahara. */
+  destination_book_id?: number
+  handed_to?: string
+  note?: string
 }
 
 export interface ListBooksResponse {
@@ -191,6 +210,20 @@ export const booksApi = {
     }),
   remove: (id: number) =>
     apiRequest<{ deleted: number }>(`/api/books/${id}`, {
+      method: "DELETE",
+    }),
+  /** Sisa saldo buku PHBI + catatan serah terimanya. */
+  settlement: (id: number) =>
+    apiRequest<SettlementInfo>(`/api/books/${id}/settlement`),
+  /** Serahkan sisa saldo buku PHBI ke bendahara. */
+  settle: (id: number, payload: CreateSettlementPayload) =>
+    apiRequest<BookSettlement>(`/api/books/${id}/settlement`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Batalkan serah terima (hapus catatan & transaksinya). */
+  cancelSettlement: (id: number) =>
+    apiRequest<{ deleted: number }>(`/api/books/${id}/settlement`, {
       method: "DELETE",
     }),
 }
@@ -246,10 +279,17 @@ export interface ListTransactionsResponse {
 
 export interface CreateTransactionPayload {
   book_id: number
-  category_id: number
+  /** Boleh dikosongkan bila `distribution` true. */
+  category_id?: number
   date?: string
   type: "pemasukan" | "pengeluaran"
   amount: number
+  /** Beras (kg), hanya untuk buku kas Ramadhan. */
+  rice_kg?: number
+  /** Pembagian ke warga (buku kas Ramadhan): nama di partner_name. */
+  distribution?: boolean
+  rt?: string
+  rw?: string
   description?: string
   partner_name?: string
   ref_no?: string
@@ -260,12 +300,158 @@ export interface UpdateTransactionPayload {
   date?: string
   type?: "pemasukan" | "pengeluaran"
   amount?: number
+  rice_kg?: number
+  rt?: string
+  rw?: string
   description?: string
   partner_name?: string
   ref_no?: string
 }
 
+/** Mengunduh file dari endpoint ber-auth (mis. export Excel). */
+async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    try {
+      const body = (await res.json()) as ApiErrorBody
+      message = body.error || body.message || message
+    } catch {
+      // bukan JSON — pakai pesan bawaan
+    }
+    throw new ApiError(message, res.status)
+  }
+  const name =
+    /filename="?([^";]+)"?/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement("a")
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+export const auditApi = {
+  list: (params: {
+    from?: string
+    to?: string
+    resource?: string
+    action?: string
+    q?: string
+    page: number
+    page_size: number
+  }) => {
+    const qs = new URLSearchParams({ page: String(params.page), page_size: String(params.page_size) })
+    if (params.from) qs.set("from", params.from)
+    if (params.to) qs.set("to", params.to)
+    if (params.resource) qs.set("resource", params.resource)
+    if (params.action) qs.set("action", params.action)
+    if (params.q) qs.set("q", params.q)
+    return apiRequest<{ logs: AuditLog[] | null; total: number }>(`/api/audit-logs?${qs}`)
+  },
+}
+
+// ─── Pembagian Warga (buku kas Ramadhan) ──────────────────────────────────────
+export interface DistributionPayload {
+  partner_name: string
+  rt?: string
+  rw?: string
+  amount: number
+  rice_kg: number
+  date?: string
+  description?: string
+}
+
+export const distributionsApi = {
+  /** Buku kas Ramadhan yang bisa dipakai untuk pembagian. */
+  books: () => apiRequest<ListBooksResponse>("/api/distributions/books"),
+  /** Daftar pembagian + ringkasan satu buku kas Ramadhan. */
+  list: (bookId: number) =>
+    apiRequest<{ distributions: Transaction[] | null; summary: RamadhanSummary }>(
+      `/api/distributions?book_id=${bookId}`,
+    ),
+  create: (bookId: number, payload: DistributionPayload) =>
+    apiRequest<Transaction>("/api/distributions", {
+      method: "POST",
+      body: JSON.stringify({ ...payload, book_id: bookId }),
+    }),
+  update: (id: number, payload: DistributionPayload) =>
+    apiRequest<Transaction>(`/api/distributions/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  remove: (id: number) =>
+    apiRequest<{ deleted: number }>(`/api/distributions/${id}`, { method: "DELETE" }),
+}
+
+// ─── Daftar Warga ─────────────────────────────────────────────────────────────
+export interface ResidentPayload {
+  name: string
+  rt?: string
+  rw?: string
+  note?: string
+}
+
+export interface ResidentImportResult {
+  created: number
+  /** Sudah ada di daftar atau berulang di file. */
+  skipped: number
+  residents: string[]
+}
+
+export const residentsApi = {
+  list: () => apiRequest<{ residents: Resident[] | null }>("/api/residents"),
+  create: (payload: ResidentPayload) =>
+    apiRequest<Resident>("/api/residents", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: number, payload: ResidentPayload) =>
+    apiRequest<Resident>(`/api/residents/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  remove: (id: number) =>
+    apiRequest<{ deleted: number }>(`/api/residents/${id}`, { method: "DELETE" }),
+  exportExcel: () => apiDownload("/api/residents/export", "daftar-warga.xlsx"),
+  template: () => apiDownload("/api/residents/template", "template-daftar-warga.xlsx"),
+  /** Unggah file Excel (template / hasil export) berisi daftar warga. */
+  importExcel: async (file: File): Promise<ResidentImportResult> => {
+    const body = new FormData()
+    body.append("file", file)
+    const token = tokenStore.get()
+    // Tanpa Content-Type: browser mengisi multipart boundary sendiri.
+    const res = await fetch(`${API_URL}/api/residents/import`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body,
+    })
+    const data = (await res.json().catch(() => null)) as (ResidentImportResult & ApiErrorBody) | null
+    if (!res.ok || !data) {
+      throw new ApiError(data?.error || data?.message || `Request failed (${res.status})`, res.status)
+    }
+    return data
+  },
+}
+
 export const transactionsApi = {
+  /**
+   * Unduh Excel berisi SEMUA transaksi yang cocok dengan filter (dibuat di
+   * server, tidak dibatasi 1000 baris seperti `list`).
+   */
+  exportExcel: (params?: { book_id?: number; type?: string; from?: string; to?: string; q?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.book_id) qs.set("book_id", String(params.book_id))
+    if (params?.type) qs.set("type", params.type)
+    if (params?.from) qs.set("from", params.from)
+    if (params?.to) qs.set("to", params.to)
+    if (params?.q) qs.set("q", params.q)
+    const query = qs.toString()
+    return apiDownload(
+      query ? `/api/transactions/export?${query}` : "/api/transactions/export",
+      "transaksi-kas.xlsx",
+    )
+  },
   list: (params?: {
     book_id?: number
     category_id?: number
@@ -430,6 +616,8 @@ export interface UpdateUserPayload {
   password?: string
   is_active?: boolean
   role_ids?: number[]
+  /** Tidak dikirim = tidak diubah; [] = semua buku kas. */
+  book_ids?: number[]
 }
 
 // No password: the user sets one via the invite link or signs in with
@@ -438,6 +626,8 @@ export interface CreateUserPayload {
   name: string
   email: string
   role_ids?: number[]
+  /** Kosong = semua buku kas. */
+  book_ids?: number[]
 }
 
 // invite_link is only returned when the email could not be sent (SMTP not

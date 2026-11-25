@@ -179,7 +179,7 @@ func (s *AuthService) Register(input *RegisterInput) (*AuthResponse, error) {
 	if adminRole != nil {
 		roleIDs = []uint{adminRole.ID}
 	}
-	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
+	if err := s.userRepo.CreateWithRoles(user, roleIDs, nil); err != nil {
 		return nil, errors.New("failed to create user")
 	}
 
@@ -556,7 +556,7 @@ func (s *AuthService) createGoogleUser(name, email, googleID string) (*models.Us
 	if adminRole != nil {
 		roleIDs = []uint{adminRole.ID}
 	}
-	if err := s.userRepo.CreateWithRoles(user, roleIDs); err != nil {
+	if err := s.userRepo.CreateWithRoles(user, roleIDs, nil); err != nil {
 		return nil, errors.New("failed to create user")
 	}
 	s.provisionTenantWorkspace(org.ID, org.Name, user.ID)

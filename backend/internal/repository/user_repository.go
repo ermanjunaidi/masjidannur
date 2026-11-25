@@ -31,9 +31,12 @@ func (r *UserRepository) Create(user *models.User) error {
 
 // CreateWithRoles inserts a user and attaches the provided roles in a
 // single transaction. Caller sets user.OrganizationID.
-func (r *UserRepository) CreateWithRoles(user *models.User, roleIDs []uint) error {
+func (r *UserRepository) CreateWithRoles(user *models.User, roleIDs, bookIDs []uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		if err := replaceBooks(tx, user, bookIDs); err != nil {
 			return err
 		}
 		if len(roleIDs) == 0 {
@@ -63,6 +66,9 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := r.attachBooks(&user); err != nil {
+		return nil, err
+	}
 	return &user, nil
 }
 
@@ -90,6 +96,9 @@ func (r *UserRepository) FindByGoogleID(googleID string) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := r.attachBooks(&user); err != nil {
+		return nil, err
+	}
 	return &user, nil
 }
 
@@ -108,6 +117,9 @@ func (r *UserRepository) FindByID(id uint) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := r.attachBooks(&user); err != nil {
+		return nil, err
+	}
 	return &user, nil
 }
 
@@ -121,21 +133,92 @@ func (r *UserRepository) FindByIDInOrg(id, orgID uint) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := r.attachBooks(&user); err != nil {
+		return nil, err
+	}
 	return &user, nil
 }
 
 // FindAll returns users in an organization (orgID=0 → all users).
 func (r *UserRepository) FindAll(orgID uint) ([]models.User, error) {
 	var users []models.User
-	err := scopeOrg(r.db, orgID).Preload("Roles.Permissions").Order("id ASC").Find(&users).Error
-	return users, err
+	if err := scopeOrg(r.db, orgID).Preload("Roles.Permissions").Order("id ASC").Find(&users).Error; err != nil {
+		return nil, err
+	}
+	ptrs := make([]*models.User, len(users))
+	for i := range users {
+		ptrs[i] = &users[i]
+	}
+	if err := r.attachBooks(ptrs...); err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
-// UpdateWithRoles applies field changes AND replaces the role set atomically.
-func (r *UserRepository) UpdateWithRoles(user *models.User, roleIDs []uint) error {
+// BookIDs returns the cash books a user is locked to (empty = no lock).
+// Rows pointing at a deleted book are kept on purpose: a user whose only
+// book was deleted stays locked (and sees nothing) instead of silently
+// gaining access to every book.
+func (r *UserRepository) BookIDs(userID uint) ([]uint, error) {
+	ids := []uint{}
+	err := r.db.Model(&models.UserBook{}).Where("user_id = ?", userID).
+		Order("book_id ASC").Pluck("book_id", &ids).Error
+	return ids, err
+}
+
+// attachBooks fills User.BookIDs for the given users in one query.
+func (r *UserRepository) attachBooks(users ...*models.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	byID := make(map[uint]*models.User, len(users))
+	ids := make([]uint, 0, len(users))
+	for _, u := range users {
+		u.BookIDs = []uint{}
+		byID[u.ID] = u
+		ids = append(ids, u.ID)
+	}
+	var rows []models.UserBook
+	if err := r.db.Where("user_id IN ?", ids).Order("book_id ASC").Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if u := byID[row.UserID]; u != nil {
+			u.BookIDs = append(u.BookIDs, row.BookID)
+		}
+	}
+	return nil
+}
+
+// replaceBooks swaps the user's book lock for bookIDs (empty = no lock).
+func replaceBooks(tx *gorm.DB, user *models.User, bookIDs []uint) error {
+	if err := tx.Where("user_id = ?", user.ID).Delete(&models.UserBook{}).Error; err != nil {
+		return err
+	}
+	user.BookIDs = []uint{}
+	if len(bookIDs) == 0 {
+		return nil
+	}
+	rows := make([]models.UserBook, 0, len(bookIDs))
+	for _, id := range bookIDs {
+		rows = append(rows, models.UserBook{UserID: user.ID, BookID: id})
+		user.BookIDs = append(user.BookIDs, id)
+	}
+	return tx.Create(&rows).Error
+}
+
+// UpdateWithRoles applies field changes AND replaces the role set and the
+// book lock atomically. bookIDs nil keeps the current lock; an empty list
+// removes it.
+func (r *UserRepository) UpdateWithRoles(user *models.User, roleIDs []uint, bookIDs *[]uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(user).Error; err != nil {
 			return err
+		}
+		if bookIDs != nil {
+			if err := replaceBooks(tx, user, *bookIDs); err != nil {
+				return err
+			}
 		}
 		var roles []models.Role
 		if len(roleIDs) > 0 {
@@ -171,6 +254,9 @@ func (r *UserRepository) Delete(id, orgID uint) error {
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(user).Association("Roles").Clear(); err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", user.ID).Delete(&models.UserBook{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(user).Error

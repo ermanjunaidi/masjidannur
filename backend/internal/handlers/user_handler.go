@@ -78,10 +78,11 @@ func userError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, service.ErrNameEmailRequired), errors.Is(err, service.ErrInvalidEmail),
 		errors.Is(err, service.ErrAlreadyActivated), errors.Is(err, service.ErrRoleRequired),
 		errors.Is(err, service.ErrRoleInvalid), errors.Is(err, service.ErrSelfRoleChange),
+		errors.Is(err, service.ErrBookLockInvalid), errors.Is(err, service.ErrBookLockPlatform),
 		errors.Is(err, service.ErrSelfDeactivate), errors.Is(err, service.ErrSelfDeleteForbidden), errors.Is(err, service.ErrPasswordTooShort):
 		status = fiber.StatusBadRequest
 	case errors.Is(err, service.ErrPlatformRoleForbidden), errors.Is(err, service.ErrRoleEscalation),
-		errors.Is(err, service.ErrTargetOutranks):
+		errors.Is(err, service.ErrTargetOutranks), errors.Is(err, service.ErrBookLockEscalation):
 		status = fiber.StatusForbidden
 	case errors.Is(err, service.ErrActorUnknown):
 		status = fiber.StatusUnauthorized

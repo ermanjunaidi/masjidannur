@@ -24,10 +24,13 @@ var (
 	ErrInvalidGroup         = errors.New("kelompok harus pendapatan atau pengeluaran")
 	ErrInvalidType          = errors.New("tipe harus pemasukan atau pengeluaran")
 	ErrInvalidAmount        = errors.New("jumlah harus lebih besar dari 0")
+	ErrRecipientRequired    = errors.New("nama warga wajib diisi")
 	ErrInvalidDate          = errors.New("format tanggal harus YYYY-MM-DD")
 	ErrCategoryMismatch     = errors.New("kategori tidak cocok dengan tipe transaksi")
 	ErrCategoryInUse        = errors.New("kategori masih dipakai transaksi")
+	ErrBookLocked           = errors.New("akun Anda dibatasi ke buku kas tertentu, tidak bisa menambah buku kas baru")
 	ErrCategoryBookMismatch = errors.New("kategori tidak termasuk dalam buku kas yang dipilih")
+	ErrSettlementTxLocked   = errors.New("transaksi serah terima sisa saldo hanya bisa dibatalkan lewat menu Buku Kas")
 )
 
 // dateRe validates the YYYY-MM-DD wire format.
@@ -57,19 +60,25 @@ func NewBookService(repo *repository.BookRepository) *BookService {
 type CreateBookInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	IsPHBI      bool   `json:"is_phbi"`
 }
 
-// CreateBook adds a new cash book.
-func (s *BookService) CreateBook(input *CreateBookInput, orgID, branchID uint) (*models.Book, error) {
+// CreateBook adds a new cash book. A user locked to selected books cannot
+// add one: it would fall outside their own lock.
+func (s *BookService) CreateBook(input *CreateBookInput, sc repository.Scope) (*models.Book, error) {
+	if sc.BookLocked() {
+		return nil, ErrBookLocked
+	}
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, ErrMasjidNameRequired
 	}
 	book := &models.Book{
-		OrganizationID: orgID,
-		BranchID:       branchID,
+		OrganizationID: sc.OrgID,
+		BranchID:       sc.BranchID,
 		Name:           strings.TrimSpace(input.Name),
 		Description:    input.Description,
 		IsActive:       true,
+		IsPHBI:         input.IsPHBI,
 	}
 	if err := s.repo.Create(book); err != nil {
 		return nil, err
@@ -78,13 +87,13 @@ func (s *BookService) CreateBook(input *CreateBookInput, orgID, branchID uint) (
 }
 
 // ListBooks returns all books of the org/branch.
-func (s *BookService) ListBooks(orgID, branchID uint) ([]models.Book, error) {
-	return s.repo.FindAll(orgID, branchID)
+func (s *BookService) ListBooks(sc repository.Scope) ([]models.Book, error) {
+	return s.repo.FindAll(sc)
 }
 
 // GetBook returns one book.
-func (s *BookService) GetBook(id, orgID, branchID uint) (*models.Book, error) {
-	return s.repo.FindByID(id, orgID, branchID)
+func (s *BookService) GetBook(id uint, sc repository.Scope) (*models.Book, error) {
+	return s.repo.FindByID(id, sc)
 }
 
 // UpdateBookInput is the payload for editing a book.
@@ -92,11 +101,12 @@ type UpdateBookInput struct {
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
 	IsActive    *bool   `json:"is_active"`
+	IsPHBI      *bool   `json:"is_phbi"`
 }
 
 // UpdateBook applies changes to a book.
-func (s *BookService) UpdateBook(id, orgID, branchID uint, input *UpdateBookInput) (*models.Book, error) {
-	book, err := s.repo.FindByID(id, orgID, branchID)
+func (s *BookService) UpdateBook(id uint, sc repository.Scope, input *UpdateBookInput) (*models.Book, error) {
+	book, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +125,9 @@ func (s *BookService) UpdateBook(id, orgID, branchID uint, input *UpdateBookInpu
 	if input.IsActive != nil {
 		book.IsActive = *input.IsActive
 	}
+	if input.IsPHBI != nil {
+		book.IsPHBI = *input.IsPHBI
+	}
 	if err := s.repo.Update(book); err != nil {
 		return nil, err
 	}
@@ -122,8 +135,8 @@ func (s *BookService) UpdateBook(id, orgID, branchID uint, input *UpdateBookInpu
 }
 
 // DeleteBook soft-deletes a book.
-func (s *BookService) DeleteBook(id, orgID, branchID uint) error {
-	book, err := s.repo.FindByID(id, orgID, branchID)
+func (s *BookService) DeleteBook(id uint, sc repository.Scope) error {
+	book, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return err
 	}
@@ -155,14 +168,14 @@ type CreateCategoryInput struct {
 }
 
 // CreateCategory adds a category under a book.
-func (s *CategoryService) CreateCategory(input *CreateCategoryInput, orgID, branchID uint) (*models.Category, error) {
+func (s *CategoryService) CreateCategory(input *CreateCategoryInput, sc repository.Scope) (*models.Category, error) {
 	if strings.TrimSpace(input.Name) == "" || input.BookID == 0 {
 		return nil, ErrMasjidNameRequired
 	}
 	if input.Group != "pendapatan" && input.Group != "pengeluaran" {
 		return nil, ErrInvalidGroup
 	}
-	book, err := s.bookRepo.FindByID(input.BookID, orgID, branchID)
+	book, err := s.bookRepo.FindByID(input.BookID, sc)
 	if err != nil {
 		return nil, err
 	}
@@ -177,8 +190,8 @@ func (s *CategoryService) CreateCategory(input *CreateCategoryInput, orgID, bran
 		return nil, ErrCategoryTaken
 	}
 	cat := &models.Category{
-		OrganizationID: orgID,
-		BranchID:       branchID,
+		OrganizationID: sc.OrgID,
+		BranchID:       sc.BranchID,
 		BookID:         input.BookID,
 		Name:           strings.TrimSpace(input.Name),
 		Group:          input.Group,
@@ -191,11 +204,11 @@ func (s *CategoryService) CreateCategory(input *CreateCategoryInput, orgID, bran
 }
 
 // ListCategories returns categories, optionally filtered by book/group.
-func (s *CategoryService) ListCategories(orgID, branchID, bookID uint, group string) ([]models.Category, error) {
+func (s *CategoryService) ListCategories(sc repository.Scope, bookID uint, group string) ([]models.Category, error) {
 	if group != "" && group != "pendapatan" && group != "pengeluaran" {
 		return nil, ErrInvalidGroup
 	}
-	return s.repo.FindAll(orgID, branchID, bookID, group)
+	return s.repo.FindAll(sc, bookID, group)
 }
 
 // UpdateCategoryInput is the payload for editing a category.
@@ -206,8 +219,8 @@ type UpdateCategoryInput struct {
 }
 
 // UpdateCategory applies changes to a category.
-func (s *CategoryService) UpdateCategory(id, orgID, branchID uint, input *UpdateCategoryInput) (*models.Category, error) {
-	cat, err := s.repo.FindByID(id, orgID, branchID)
+func (s *CategoryService) UpdateCategory(id uint, sc repository.Scope, input *UpdateCategoryInput) (*models.Category, error) {
+	cat, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return nil, err
 	}
@@ -236,8 +249,8 @@ func (s *CategoryService) UpdateCategory(id, orgID, branchID uint, input *Update
 }
 
 // DeleteCategory soft-deletes a category.
-func (s *CategoryService) DeleteCategory(id, orgID, branchID uint) error {
-	cat, err := s.repo.FindByID(id, orgID, branchID)
+func (s *CategoryService) DeleteCategory(id uint, sc repository.Scope) error {
+	cat, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return err
 	}
@@ -275,7 +288,18 @@ type CreateTransactionInput struct {
 	Description string  `json:"description"`
 	PartnerName string  `json:"partner_name"`
 	RefNo       string  `json:"ref_no"`
+	// Distribution records a "pembagian ke warga": a pengeluaran of a
+	// PHBI book to resident PartnerName (RT/RW). Type is forced to
+	// pengeluaran and CategoryID may be omitted — the book's
+	// "Pembagian ke Warga" category is used (created on first use).
+	Distribution bool   `json:"distribution"`
+	RT           string `json:"rt"`
+	RW           string `json:"rw"`
 }
+
+// DistributionCategoryName is the pengeluaran category that holds a
+// PHBI book's distributions to residents.
+const DistributionCategoryName = "Pembagian ke Warga"
 
 // transactionGroup maps a transaction type (pemasukan|pengeluaran)
 // onto its category group (pendapatan|pengeluaran) so the two vocabularies
@@ -289,15 +313,19 @@ func transactionGroup(txType string) string {
 
 // CreateTransaction records a cash movement. The transaction type must
 // match the category group so reports stay consistent.
-func (s *TransactionService) CreateTransaction(input *CreateTransactionInput, orgID, branchID, userID uint) (*models.Transaction, error) {
-	if input.BookID == 0 || input.CategoryID == 0 {
+func (s *TransactionService) CreateTransaction(input *CreateTransactionInput, sc repository.Scope, userID uint) (*models.Transaction, error) {
+	if input.Distribution {
+		input.Type = "pengeluaran"
+		input.PartnerName = strings.TrimSpace(input.PartnerName)
+		if input.PartnerName == "" {
+			return nil, ErrRecipientRequired
+		}
+	}
+	if input.BookID == 0 || (input.CategoryID == 0 && !input.Distribution) {
 		return nil, ErrMasjidNameRequired
 	}
 	if input.Type != "pemasukan" && input.Type != "pengeluaran" {
 		return nil, ErrInvalidType
-	}
-	if input.Amount <= 0 {
-		return nil, ErrInvalidAmount
 	}
 	if input.Date == "" {
 		input.Date = time.Now().Format("2006-01-02")
@@ -305,14 +333,25 @@ func (s *TransactionService) CreateTransaction(input *CreateTransactionInput, or
 	if !isValidDate(input.Date) {
 		return nil, ErrInvalidDate
 	}
-	book, err := s.bookRepo.FindByID(input.BookID, orgID, branchID)
+	book, err := s.bookRepo.FindByID(input.BookID, sc)
 	if err != nil {
 		return nil, err
 	}
 	if book == nil {
 		return nil, ErrBookNotFound
 	}
-	cat, err := s.catRepo.FindByID(input.CategoryID, orgID, branchID)
+	if input.Distribution && !book.IsPHBI {
+		return nil, ErrNotPHBIBook
+	}
+	if input.Amount <= 0 {
+		return nil, ErrInvalidAmount
+	}
+	var cat *models.Category
+	if input.Distribution && input.CategoryID == 0 {
+		cat, err = s.distributionCategory(book)
+	} else {
+		cat, err = s.catRepo.FindByID(input.CategoryID, sc)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -326,10 +365,13 @@ func (s *TransactionService) CreateTransaction(input *CreateTransactionInput, or
 		return nil, ErrCategoryMismatch
 	}
 	tx := &models.Transaction{
-		OrganizationID: orgID,
-		BranchID:       branchID,
+		OrganizationID: sc.OrgID,
+		BranchID:       sc.BranchID,
 		BookID:         input.BookID,
-		CategoryID:     input.CategoryID,
+		CategoryID:     cat.ID,
+		IsDistribution: input.Distribution,
+		RT:             NormalizeRTRW(input.RT),
+		RW:             NormalizeRTRW(input.RW),
 		Date:           input.Date,
 		Type:           input.Type,
 		Amount:         input.Amount,
@@ -344,25 +386,59 @@ func (s *TransactionService) CreateTransaction(input *CreateTransactionInput, or
 	return tx, nil
 }
 
+// distributionCategory returns the book's "Pembagian ke Warga" pengeluaran
+// category, creating it on first use.
+func (s *TransactionService) distributionCategory(book *models.Book) (*models.Category, error) {
+	cat, err := s.catRepo.FindByNameInBook(book.ID, DistributionCategoryName, "pengeluaran")
+	if err != nil || cat != nil {
+		return cat, err
+	}
+	cat = &models.Category{
+		OrganizationID: book.OrganizationID,
+		BranchID:       book.BranchID,
+		BookID:         book.ID,
+		Name:           DistributionCategoryName,
+		Group:          "pengeluaran",
+		Description:    "Pembagian uang kepada warga",
+	}
+	if err := s.catRepo.Create(cat); err != nil {
+		return nil, err
+	}
+	return cat, nil
+}
+
 // UpdateTransactionInput is the payload for editing a transaction.
 type UpdateTransactionInput struct {
 	CategoryID  *uint    `json:"category_id"`
 	Date        *string  `json:"date"`
 	Type        *string  `json:"type"`
 	Amount      *float64 `json:"amount"`
+	RT          *string  `json:"rt"`
+	RW          *string  `json:"rw"`
 	Description *string  `json:"description"`
 	PartnerName *string  `json:"partner_name"`
 	RefNo       *string  `json:"ref_no"`
 }
 
 // UpdateTransaction applies changes, re-validating type/category/date.
-func (s *TransactionService) UpdateTransaction(id, orgID, branchID uint, input *UpdateTransactionInput) (*models.Transaction, error) {
-	tx, err := s.repo.FindByID(id, orgID, branchID)
+func (s *TransactionService) UpdateTransaction(id uint, sc repository.Scope, input *UpdateTransactionInput) (*models.Transaction, error) {
+	tx, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return nil, err
 	}
 	if tx == nil {
 		return nil, ErrTransactionNotFound
+	}
+	// A handover entry follows its settlement record: edit the record by
+	// cancelling the handover from the Buku Kas page, not the ledger.
+	if tx.IsSettlement {
+		return nil, ErrSettlementTxLocked
+	}
+	// A distribution row is always a pengeluaran in the book's
+	// "Pembagian ke Warga" category. Type and category are fixed, even
+	// when the edit arrives through the generic transaction endpoint.
+	if tx.IsDistribution {
+		input.Type, input.CategoryID = nil, nil
 	}
 	if input.Type != nil {
 		if *input.Type != "pemasukan" && *input.Type != "pengeluaran" {
@@ -371,7 +447,7 @@ func (s *TransactionService) UpdateTransaction(id, orgID, branchID uint, input *
 		tx.Type = *input.Type
 	}
 	if input.CategoryID != nil {
-		cat, err := s.catRepo.FindByID(*input.CategoryID, orgID, branchID)
+		cat, err := s.catRepo.FindByID(*input.CategoryID, sc)
 		if err != nil {
 			return nil, err
 		}
@@ -398,10 +474,19 @@ func (s *TransactionService) UpdateTransaction(id, orgID, branchID uint, input *
 		}
 		tx.Amount = *input.Amount
 	}
+	if input.RT != nil {
+		tx.RT = NormalizeRTRW(*input.RT)
+	}
+	if input.RW != nil {
+		tx.RW = NormalizeRTRW(*input.RW)
+	}
 	if input.Description != nil {
 		tx.Description = *input.Description
 	}
 	if input.PartnerName != nil {
+		if tx.IsDistribution && strings.TrimSpace(*input.PartnerName) == "" {
+			return nil, ErrRecipientRequired
+		}
 		tx.PartnerName = *input.PartnerName
 	}
 	if input.RefNo != nil {
@@ -414,20 +499,23 @@ func (s *TransactionService) UpdateTransaction(id, orgID, branchID uint, input *
 }
 
 // DeleteTransaction soft-deletes a transaction.
-func (s *TransactionService) DeleteTransaction(id, orgID, branchID uint) error {
-	tx, err := s.repo.FindByID(id, orgID, branchID)
+func (s *TransactionService) DeleteTransaction(id uint, sc repository.Scope) error {
+	tx, err := s.repo.FindByID(id, sc)
 	if err != nil {
 		return err
 	}
 	if tx == nil {
 		return nil
 	}
+	if tx.IsSettlement {
+		return ErrSettlementTxLocked
+	}
 	return s.repo.Delete(id)
 }
 
 // ListTransactions filters transactions (all params optional).
 func (s *TransactionService) ListTransactions(
-	orgID, branchID, bookID, categoryID uint,
+	sc repository.Scope, bookID, categoryID uint,
 	txType, from, to, q string,
 ) ([]models.Transaction, error) {
 	if txType != "" && txType != "pemasukan" && txType != "pengeluaran" {
@@ -439,7 +527,123 @@ func (s *TransactionService) ListTransactions(
 	if to != "" && !isValidDate(to) {
 		return nil, ErrInvalidDate
 	}
-	return s.repo.List(orgID, branchID, bookID, categoryID, txType, from, to, q)
+	return s.repo.List(sc, bookID, categoryID, txType, from, to, q)
+}
+
+// ListDistributions returns a PHBI book's "pembagian ke warga" rows,
+// ordered by RW, RT, then name — the order of the printed list.
+func (s *TransactionService) ListDistributions(sc repository.Scope, bookID uint) ([]models.Transaction, error) {
+	if bookID == 0 {
+		return nil, ErrBookNotFound
+	}
+	return s.repo.ListDistributions(sc, bookID)
+}
+
+// PHBIBooks returns the PHBI cash books visible to the scope — the books a
+// distribution can be recorded in.
+func (s *TransactionService) PHBIBooks(sc repository.Scope) ([]models.Book, error) {
+	books, err := s.bookRepo.FindAll(sc)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.Book, 0, len(books))
+	for _, b := range books {
+		if b.IsPHBI {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+// IsDistribution reports whether the transaction is a "pembagian ke warga"
+// row. The generic transaction endpoints use it to require the matching
+// distributions permission before touching such a row. A missing row
+// reports false with no error; the caller's own lookup then decides its
+// response, as before.
+func (s *TransactionService) IsDistribution(id uint, sc repository.Scope) (bool, error) {
+	tx, err := s.repo.FindByID(id, sc)
+	if err != nil {
+		return false, err
+	}
+	if tx == nil {
+		return false, nil
+	}
+	return tx.IsDistribution, nil
+}
+
+// distribution loads a transaction that is a "pembagian ke warga" row;
+// any other transaction is reported as not found, so the distributions
+// endpoints cannot be used to edit ordinary transactions.
+func (s *TransactionService) distribution(id uint, sc repository.Scope) (*models.Transaction, error) {
+	tx, err := s.repo.FindByID(id, sc)
+	if err != nil {
+		return nil, err
+	}
+	if tx == nil || !tx.IsDistribution {
+		return nil, ErrTransactionNotFound
+	}
+	return tx, nil
+}
+
+// UpdateDistribution edits a distribution row (resident, RT/RW, money,
+// date, note). Type and category are fixed.
+func (s *TransactionService) UpdateDistribution(id uint, sc repository.Scope, input *UpdateTransactionInput) (*models.Transaction, error) {
+	if _, err := s.distribution(id, sc); err != nil {
+		return nil, err
+	}
+	input.Type, input.CategoryID = nil, nil
+	return s.UpdateTransaction(id, sc, input)
+}
+
+// DeleteDistribution removes a distribution row.
+func (s *TransactionService) DeleteDistribution(id uint, sc repository.Scope) error {
+	if _, err := s.distribution(id, sc); err != nil {
+		return err
+	}
+	return s.repo.Delete(id)
+}
+
+// DistributionSummary is what came in, what was handed out to residents,
+// and what is left in one PHBI book.
+type DistributionSummary struct {
+	BookID            uint    `json:"book_id"`
+	Income            float64 `json:"income"`
+	Expense           float64 `json:"expense"`
+	Balance           float64 `json:"balance"`
+	Recipients        int64   `json:"recipients"`
+	DistributedAmount float64 `json:"distributed_amount"`
+}
+
+// DistributionSummary totals one PHBI book.
+func (s *TransactionService) DistributionSummary(sc repository.Scope, bookID uint) (*DistributionSummary, error) {
+	book, err := s.bookRepo.FindByID(bookID, sc)
+	if err != nil {
+		return nil, err
+	}
+	if book == nil {
+		return nil, ErrBookNotFound
+	}
+	if !book.IsPHBI {
+		return nil, ErrNotPHBIBook
+	}
+	rows, err := s.repo.DistributionTotals(sc, bookID)
+	if err != nil {
+		return nil, err
+	}
+	out := &DistributionSummary{BookID: bookID}
+	for _, r := range rows {
+		if r.Type == "pemasukan" {
+			out.Income += r.Amount
+			continue
+		}
+		out.Expense += r.Amount
+		if r.IsDistribution {
+			out.Recipients += r.Count
+			out.DistributedAmount += r.Amount
+		}
+	}
+	out.Balance = out.Income - out.Expense
+	return out, nil
 }
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
@@ -485,7 +689,7 @@ type LedgerEntry struct {
 }
 
 // MonthlyReport builds the monthly ledger for a book (bookID 0 = all books).
-func (s *TransactionService) MonthlyReport(orgID, branchID, bookID uint, month string) (*MonthlyReport, error) {
+func (s *TransactionService) MonthlyReport(sc repository.Scope, bookID uint, month string) (*MonthlyReport, error) {
 	if len(month) != 7 {
 		return nil, errors.New("format bulan harus YYYY-MM")
 	}
@@ -494,18 +698,18 @@ func (s *TransactionService) MonthlyReport(orgID, branchID, bookID uint, month s
 	if err != nil {
 		return nil, err
 	}
-	income, expense, err := s.repo.SumByType(orgID, branchID, bookID, start, end)
+	income, expense, err := s.repo.SumByType(sc, bookID, start, end)
 	if err != nil {
 		return nil, err
 	}
 	// Opening balance = cumulative net of everything before this month.
-	startIncome, startExpense, err := s.repo.SumByType(orgID, branchID, bookID, "", monthEndPrev(start))
+	startIncome, startExpense, err := s.repo.SumByType(sc, bookID, "", monthEndPrev(start))
 	if err != nil {
 		return nil, err
 	}
 	startCash := startIncome - startExpense
 
-	txs, err := s.repo.List(orgID, branchID, bookID, 0, "", start, end, "")
+	txs, err := s.repo.List(sc, bookID, 0, "", start, end, "")
 	if err != nil {
 		return nil, err
 	}
@@ -543,14 +747,14 @@ func (s *TransactionService) MonthlyReport(orgID, branchID, bookID uint, month s
 }
 
 // CategoryReport groups income/expense per category for a date range.
-func (s *TransactionService) CategoryReport(orgID, branchID, bookID uint, from, to string) (*ReportTotals, []ReportRow, error) {
+func (s *TransactionService) CategoryReport(sc repository.Scope, bookID uint, from, to string) (*ReportTotals, []ReportRow, error) {
 	if from != "" && !isValidDate(from) {
 		return nil, nil, ErrInvalidDate
 	}
 	if to != "" && !isValidDate(to) {
 		return nil, nil, ErrInvalidDate
 	}
-	txs, err := s.repo.List(orgID, branchID, bookID, 0, "", from, to, "")
+	txs, err := s.repo.List(sc, bookID, 0, "", from, to, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -616,7 +820,7 @@ type WeekEntry struct {
 }
 
 // WeeklyReport buckets transactions per week over a date range.
-func (s *TransactionService) WeeklyReport(orgID, branchID, bookID uint, from, to string) (*WeeklyReport, error) {
+func (s *TransactionService) WeeklyReport(sc repository.Scope, bookID uint, from, to string) (*WeeklyReport, error) {
 	if !isValidDate(from) || !isValidDate(to) {
 		return nil, ErrInvalidDate
 	}
@@ -639,7 +843,7 @@ func (s *TransactionService) WeeklyReport(orgID, branchID, bookID uint, from, to
 	for ws := start; !ws.After(end); ws = ws.AddDate(0, 0, 7) {
 		we := ws
 		weEnd := ws.AddDate(0, 0, 6)
-		inc, exp, err := s.repo.SumByType(orgID, branchID, bookID, we.Format("2006-01-02"), weEnd.Format("2006-01-02"))
+		inc, exp, err := s.repo.SumByType(sc, bookID, we.Format("2006-01-02"), weEnd.Format("2006-01-02"))
 		if err != nil {
 			return nil, err
 		}
@@ -689,14 +893,14 @@ type PeriodBook struct {
 
 // PeriodReport builds the per-book period report. Opening balance is the
 // cumulative net of every transaction dated before `from`.
-func (s *TransactionService) PeriodReport(orgID, branchID uint, from, to string) (*PeriodReport, error) {
+func (s *TransactionService) PeriodReport(sc repository.Scope, from, to string) (*PeriodReport, error) {
 	if !isValidDate(from) || !isValidDate(to) {
 		return nil, ErrInvalidDate
 	}
 	if to < from {
 		return nil, errors.New("tanggal akhir sebelum tanggal awal")
 	}
-	books, err := s.bookRepo.FindAll(orgID, branchID)
+	books, err := s.bookRepo.FindAll(sc)
 	if err != nil {
 		return nil, err
 	}
@@ -705,11 +909,11 @@ func (s *TransactionService) PeriodReport(orgID, branchID uint, from, to string)
 	beforeFrom := monthEndPrev(from) // = from - 1 hari
 	report := &PeriodReport{From: from, To: to, Books: make([]PeriodBook, 0, len(books))}
 	for _, b := range books {
-		openIn, openOut, err := s.repo.SumByType(orgID, branchID, b.ID, "", beforeFrom)
+		openIn, openOut, err := s.repo.SumByType(sc, b.ID, "", beforeFrom)
 		if err != nil {
 			return nil, err
 		}
-		txs, err := s.repo.List(orgID, branchID, b.ID, 0, "", from, to, "")
+		txs, err := s.repo.List(sc, b.ID, 0, "", from, to, "")
 		if err != nil {
 			return nil, err
 		}

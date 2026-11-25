@@ -166,8 +166,8 @@ export function ModalShell({
 
 // ─── UserModal ────────────────────────────────────────────────────────────────
 
-import { usersApi, rolesApi, ApiError, type InviteResult } from "@/lib/api"
-import type { Role, User } from "@/lib/types"
+import { usersApi, rolesApi, booksApi, ApiError, type InviteResult } from "@/lib/api"
+import type { Book, Role, User } from "@/lib/types"
 import { useAuth } from "@/context/AuthContext"
 
 interface UserModalProps {
@@ -195,6 +195,9 @@ export function UserModal({
   const [password, setPassword] = useState("")
   const [selectedRoleIDs, setSelectedRoleIDs] = useState<number[]>([])
   const [isActive, setIsActive] = useState(true)
+  // Kunci buku kas: lockBooks mati = user melihat semua buku kas.
+  const [lockBooks, setLockBooks] = useState(false)
+  const [selectedBookIDs, setSelectedBookIDs] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   // Set after create / resend when the invite link must be shared manually.
@@ -240,6 +243,34 @@ export function UserModal({
         : []
       : availableRoles
 
+  // Buku kas organisasi si user, untuk mengunci user ke buku tertentu.
+  // null = tidak bisa dimuat (mis. tanpa izin books:read) → bagian ini
+  // disembunyikan dan kunci buku tidak ikut diubah saat menyimpan.
+  const bookOrg = mode === "edit" ? targetOrg : actor?.organization_id ?? 0
+  const [books, setBooks] = useState<Book[] | null>(null)
+  useEffect(() => {
+    if (!open || bookOrg === 0) return
+    let cancelled = false
+    booksApi
+      .list()
+      .then((r) => {
+        if (cancelled) return
+        const list = r.books ?? []
+        // Superadmin platform menerima buku semua masjid: saring ke masjid si user.
+        setBooks(isPlatform ? list.filter((b) => b.organization_id === bookOrg) : list)
+      })
+      .catch(() => {
+        if (!cancelled) setBooks(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, isPlatform, bookOrg])
+  // Admin yang dirinya sendiri dikunci hanya bisa memberi buku miliknya,
+  // dan tidak bisa membuka kunci user lain (dicek ulang di backend).
+  const actorLocked = !isPlatform && (actor?.book_ids?.length ?? 0) > 0
+  const showBooks = bookOrg !== 0 && books !== null
+
   // Reset form state every time the modal opens with a different target.
   useEffect(() => {
     if (!open) return
@@ -248,6 +279,8 @@ export function UserModal({
     setPassword("") // always start empty: blank = no change
     setSelectedRoleIDs(initialUser?.roles?.map((r) => r.id) ?? [])
     setIsActive(initialUser?.is_active ?? true)
+    setLockBooks((initialUser?.book_ids?.length ?? 0) > 0)
+    setSelectedBookIDs(initialUser?.book_ids ?? [])
     setError(null)
     setSaving(false)
     setInvite(null)
@@ -283,6 +316,12 @@ export function UserModal({
     )
   }
 
+  const toggleBook = (id: number) => {
+    setSelectedBookIDs((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }
+
   const handleSave = async () => {
     setError(null)
     if (!name.trim() || !email.trim()) {
@@ -291,6 +330,21 @@ export function UserModal({
     }
     if (selectedRoleIDs.length === 0) {
       setError("Pilih minimal satu role")
+      return
+    }
+    // Kunci buku kas: hanya dikirim bila bagian ini tampil dan berubah.
+    // Buku yang sudah dihapus dibuang dari pilihan.
+    const mustLock = lockBooks || (actorLocked && mode === "create")
+    const visibleBookIDs = (books ?? []).map((b) => b.id)
+    const pickedBookIDs = mustLock ? selectedBookIDs.filter((id) => visibleBookIDs.includes(id)) : []
+    const initialBookIDs = initialUser?.book_ids ?? []
+    const booksChanged =
+      showBooks &&
+      (mustLock !== initialBookIDs.length > 0 ||
+        selectedBookIDs.length !== initialBookIDs.length ||
+        selectedBookIDs.some((id) => !initialBookIDs.includes(id)))
+    if (showBooks && mustLock && booksChanged && pickedBookIDs.length === 0) {
+      setError("Pilih minimal satu buku kas, atau matikan pembatasan buku kas")
       return
     }
     setSaving(true)
@@ -304,6 +358,7 @@ export function UserModal({
           name: name.trim(),
           email: email.trim(),
           role_ids: selectedRoleIDs,
+          ...(showBooks ? { book_ids: pickedBookIDs } : {}),
         })
         if (res.invite_link) {
           // Keep the modal open so the admin can copy the link.
@@ -320,6 +375,9 @@ export function UserModal({
         }
         if (password) {
           payload.password = password
+        }
+        if (booksChanged) {
+          payload.book_ids = pickedBookIDs
         }
         const updated = await usersApi.update(initialUser.id, payload)
         onSaved(updated)
@@ -530,6 +588,63 @@ export function UserModal({
           </div>
         )}
       </div>
+
+      {showBooks && (
+        <div className="space-y-2">
+          <Label>Akses buku kas</Label>
+          <div className="flex items-center gap-2">
+            <input
+              id="user-lock-books"
+              type="checkbox"
+              checked={lockBooks || (actorLocked && mode === "create")}
+              disabled={actorLocked}
+              onChange={(e) => setLockBooks(e.target.checked)}
+              className="h-4 w-4 rounded border"
+            />
+            <Label htmlFor="user-lock-books" className="cursor-pointer font-normal">
+              Batasi hanya ke buku kas yang dipilih
+            </Label>
+          </div>
+          {lockBooks || (actorLocked && mode === "create") ? (
+            <>
+              {books.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Belum ada buku kas.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2 rounded-lg border p-3 bg-muted/30">
+                  {books.map((book) => {
+                    const checked = selectedBookIDs.includes(book.id)
+                    return (
+                      <label
+                        key={book.id}
+                        className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                          checked
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background hover:bg-muted"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={checked}
+                          onChange={() => toggleBook(book.id)}
+                        />
+                        <span className="font-medium">{book.name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                User hanya melihat buku kas, kategori, transaksi, dan laporan dari buku yang
+                dipilih, dan tidak bisa menambah buku kas baru.
+                {actorLocked && " Akun Anda sendiri dibatasi, jadi hanya buku kas Anda yang bisa diberikan."}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">User bisa melihat semua buku kas.</p>
+          )}
+        </div>
+      )}
 
       {mode === "edit" && (
         <div className="flex items-center gap-2">

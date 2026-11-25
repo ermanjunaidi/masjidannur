@@ -48,7 +48,6 @@ export default function ReportsPage() {
   const [periodFrom, setPeriodFrom] = useState(() => addDays(lastFriday(), -7))
   const [periodTo, setPeriodTo] = useState(lastFriday())
   const [period, setPeriod] = useState<PeriodReport | null>(null)
-  const [mainBookId, setMainBookId] = useState<number | null>(null)
 
   const [settings, setSettings] = useState<MasjidSettings | null>(null)
   const [loading, setLoading] = useState(false)
@@ -416,7 +415,7 @@ export default function ReportsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.print()}
+                  onClick={printPeriodSheet}
                   disabled={!period || period.books.length === 0}
                 >
                   <Printer className="h-4 w-4" />
@@ -454,23 +453,6 @@ export default function ReportsPage() {
                   className="w-40"
                 />
               </div>
-              {period && period.books.length > 1 && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="rep-main">Buku utama (rinci)</Label>
-                  <select
-                    id="rep-main"
-                    className="h-9 rounded-lg border bg-background px-3 text-sm"
-                    value={String(mainBookId ?? period.books[0].book_id)}
-                    onChange={(e) => setMainBookId(Number(e.target.value))}
-                  >
-                    {period.books.map((b) => (
-                      <option key={b.book_id} value={b.book_id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -479,7 +461,7 @@ export default function ReportsPage() {
             )}
             {period && period.books.length > 0 && (
               <div className="rounded-lg border">
-                <PeriodReportSheet report={period} masjid={settings} mainBookId={mainBookId} />
+                <PeriodReportSheet report={period} masjid={settings} />
               </div>
             )}
           </CardContent>
@@ -553,4 +535,43 @@ function addDays(date: string, n: number): string {
 function toISO(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// A4 dikurangi margin @page 12mm (lihat index.css): 186mm × 273mm.
+const PRINT_W_PX = (186 / 25.4) * 96
+const PRINT_H_PX = (273 / 25.4) * 96 - 16 // sisakan sedikit ruang aman
+
+/**
+ * Cetak Laporan Periode dalam 1 halaman A4: pasang tata letak cetak (2 kolom),
+ * ukur tinggi lembar pada lebar kertas, lalu perkecil (CSS zoom) secukupnya.
+ * Laporan pendek tidak diperkecil.
+ */
+function printPeriodSheet() {
+  const el = document.getElementById("period-print")
+  const root = document.documentElement
+  if (el) {
+    const prev = el.style.cssText
+    el.style.width = `${PRINT_W_PX}px`
+    el.style.maxWidth = "none"
+    el.style.padding = "0"
+    // Coba dulu setiap buku utuh per kolom; bila tidak muat, izinkan buku
+    // panjang berlanjut ke kolom berikutnya.
+    el.classList.add("print-layout", "print-keep")
+    let height = el.scrollHeight
+    if (height > PRINT_H_PX) {
+      el.classList.remove("print-keep")
+      height = el.scrollHeight
+    }
+    el.style.cssText = prev
+    // Batas bawah 0.7: laporan yang sangat panjang lebih baik jadi 2 halaman
+    // daripada hurufnya terlalu kecil untuk dibaca.
+    const zoom = Math.max(0.7, Math.min(1, PRINT_H_PX / height))
+    root.style.setProperty("--period-print-zoom", String(zoom))
+    window.addEventListener(
+      "afterprint",
+      () => el.classList.remove("print-layout", "print-keep"),
+      { once: true },
+    )
+  }
+  window.print()
 }

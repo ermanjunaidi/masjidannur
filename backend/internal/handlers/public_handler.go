@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"backend/internal/models"
+	"backend/internal/repository"
 	"backend/internal/service"
 )
 
@@ -60,7 +61,7 @@ func (h *PublicDisplayHandler) GetDisplayData(c *fiber.Ctx) error {
 	currentMonth := time.Now().Format("2006-01")
 
 	// Get financial summary for current month across all books for this masjid
-	monthly, err := h.transactionService.MonthlyReport(orgID, 0, 0, currentMonth)
+	monthly, err := h.transactionService.MonthlyReport(repository.Scope{OrgID: orgID}, 0, currentMonth)
 	if err != nil {
 		monthly = &service.MonthlyReport{
 			Month: currentMonth,
@@ -82,7 +83,7 @@ func (h *PublicDisplayHandler) GetDisplayData(c *fiber.Ctx) error {
 	}
 
 	// Also fetch recent transactions (limit to 6)
-	recentTxs, err := h.transactionService.ListTransactions(orgID, 0, 0, 0, "", "", "", "")
+	recentTxs, err := h.transactionService.ListTransactions(repository.Scope{OrgID: orgID}, 0, 0, "", "", "", "")
 	if err != nil {
 		recentTxs = nil
 	}
@@ -90,7 +91,7 @@ func (h *PublicDisplayHandler) GetDisplayData(c *fiber.Ctx) error {
 		recentTxs = recentTxs[:6]
 	}
 
-	books, _ := h.bookService.ListBooks(orgID, 0)
+	books, _ := h.bookService.ListBooks(repository.Scope{OrgID: orgID})
 
 	return c.JSON(fiber.Map{
 		"masjid": settings,

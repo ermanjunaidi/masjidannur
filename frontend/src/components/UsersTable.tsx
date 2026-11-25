@@ -325,6 +325,15 @@ export default function UsersTable({ roles, onChanged }: UsersTableProps) {
                             </Badge>
                           ))
                         )}
+                        {(u.book_ids?.length ?? 0) > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px]"
+                            title="Dibatasi ke buku kas tertentu"
+                          >
+                            {u.book_ids?.length} buku kas
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>

@@ -13,7 +13,7 @@ import type {
   ReportTotals,
   Transaction,
 } from "./types"
-import { formatRupiah, nomorNota } from "./types"
+import { formatKg, formatRupiah, nomorNota } from "./types"
 
 // ─── Share ke WhatsApp ────────────────────────────────────────────────────────
 
@@ -128,11 +128,14 @@ export function buildTransactionNota(
       isIn ? `Terima dari: ${tx.partner_name}` : `Dibayarkan ke: ${tx.partner_name}`,
     )
   }
-  lines.push(
-    SEP,
-    `*${isIn ? "Jumlah Terima" : "Jumlah Bayar"}: ${formatRupiah(tx.amount)}*`,
-    ...notaFooter(opts.masjid),
-  )
+  const rice = tx.rice_kg ?? 0
+  lines.push(SEP)
+  // Pemasukan berupa beras saja: baris uang tidak ditampilkan.
+  if (tx.amount > 0 || rice <= 0) {
+    lines.push(`*${isIn ? "Jumlah Terima" : "Jumlah Bayar"}: ${formatRupiah(tx.amount)}*`)
+  }
+  if (rice > 0) lines.push(`*Beras: ${formatKg(rice)}*`)
+  lines.push(...notaFooter(opts.masjid))
   return lines.join("\n")
 }
 

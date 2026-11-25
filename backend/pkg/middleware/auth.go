@@ -21,6 +21,7 @@ const (
 	CtxBranchID       = "branch_id"
 	CtxRoles          = "user_roles"
 	CtxPermissions    = "user_permissions"
+	CtxBookIDs        = "book_ids"
 )
 
 // RequireAuth returns Fiber middleware that enforces a valid Bearer
@@ -83,16 +84,33 @@ func RequireAuth(resolver claimResolver) fiber.Handler {
 // "users:write", "roles:delete".
 func RequirePermission(key string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		raw, _ := c.Locals(CtxPermissions).([]string)
-		for _, p := range raw {
-			if p == key {
-				return c.Next()
-			}
+		if HasPermission(c, key) {
+			return c.Next()
 		}
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"error": "forbidden: missing permission " + key,
-		})
+		return Forbidden(c, key)
 	}
+}
+
+// HasPermission reports whether the authenticated actor holds key. Must be
+// called after RequireAuth has populated CtxPermissions. Handlers use it
+// when one route serves two resources with different permission keys, so a
+// permission check cannot be expressed as route middleware alone.
+func HasPermission(c *fiber.Ctx, key string) bool {
+	raw, _ := c.Locals(CtxPermissions).([]string)
+	for _, p := range raw {
+		if p == key {
+			return true
+		}
+	}
+	return false
+}
+
+// Forbidden is the 403 response for a missing permission key. It keeps the
+// message identical to RequirePermission's.
+func Forbidden(c *fiber.Ctx, key string) error {
+	return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+		"error": "forbidden: missing permission " + key,
+	})
 }
 
 // RequirePlatformAdmin 403s unless the caller is platform staff
@@ -128,6 +146,38 @@ func ActorOrgID(c *fiber.Ctx) (uint, bool) {
 func ActorBranchID(c *fiber.Ctx) (uint, bool) {
 	v, ok := c.Locals(CtxBranchID).(uint)
 	return v, ok
+}
+
+// BookScope loads the cash books the authenticated user is locked to and
+// stores them for ActorBookIDs. It reads the database on every request
+// (not the JWT) so a lock set by an admin applies immediately, without
+// waiting for the user's token to expire. Must be mounted AFTER
+// RequireAuth. A failed lookup rejects the request: falling back to
+// "no lock" would expose every book.
+func BookScope(load func(userID uint) ([]uint, error)) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		uid, ok := ActorUserID(c)
+		if !ok {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "missing actor id",
+			})
+		}
+		ids, err := load(uid)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "gagal memuat akses buku kas",
+			})
+		}
+		c.Locals(CtxBookIDs, ids)
+		return c.Next()
+	}
+}
+
+// ActorBookIDs returns the cash books the user is locked to. Empty means
+// no lock (every book of the organization).
+func ActorBookIDs(c *fiber.Ctx) []uint {
+	v, _ := c.Locals(CtxBookIDs).([]uint)
+	return v
 }
 
 // parseUint is a tiny helper to parse a single uint from a string.
